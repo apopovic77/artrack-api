@@ -1,0 +1,2342 @@
+openapi: 3.1.0
+info:
+  title: FastAPI
+  version: 0.1.0
+paths:
+  /ai/claude:
+    post:
+      summary: Claude Endpoint
+      operationId: claude_endpoint_ai_claude_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Prompt'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
+  /ai/chatgpt:
+    post:
+      summary: Chatgpt Endpoint
+      operationId: chatgpt_endpoint_ai_chatgpt_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Prompt'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
+  /ai/gemini:
+    post:
+      summary: Gemini Endpoint
+      operationId: gemini_endpoint_ai_gemini_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Prompt'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
+  /ai_gendepth:
+    post:
+      summary: Start Depth Generation Job
+      description: Starts a new depth map generation job by calling the external Artificial
+        Studio API.
+      operationId: start_depth_generation_job_ai_gendepth_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepthJobRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - APIKeyHeader: []
+  /ai_gendepth_webhook/{job_id}:
+    post:
+      summary: Receive Depth Generation Webhook
+      description: Webhook for the external service to call when the job is complete.
+      operationId: receive_depth_generation_webhook_ai_gendepth_webhook__job_id__post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Result
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /ai_gendepth_result/{job_id}:
+    get:
+      summary: Get Depth Generation Result
+      description: Fetches the result of a depth map generation job.
+      operationId: get_depth_generation_result_ai_gendepth_result__job_id__get
+      security:
+      - APIKeyHeader: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/auth/register:
+    post:
+      tags:
+      - artrack-auth
+      summary: Register
+      description: Register a new user
+      operationId: register_artrack_auth_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/auth/login:
+    post:
+      tags:
+      - artrack-auth
+      summary: Login
+      description: Login user
+      operationId: login_artrack_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLogin'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/auth/me:
+    get:
+      tags:
+      - artrack-auth
+      summary: Get Me
+      description: Get current user info
+      operationId: get_me_artrack_auth_me_get
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/auth/google:
+    post:
+      tags:
+      - artrack-auth
+      summary: Google Login
+      description: Login/Register via Firebase Google ID token and return api_key.
+      operationId: google_login_artrack_auth_google_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleAuthRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/auth/refresh:
+    post:
+      tags:
+      - artrack-auth
+      summary: Refresh Token
+      description: Refresh access token (placeholder - in real app would use refresh
+        token)
+      operationId: refresh_token_artrack_auth_refresh_post
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/tracks/:
+    post:
+      tags:
+      - artrack-tracks
+      summary: Create Track
+      description: Create a new track
+      operationId: create_track_artrack_tracks__post
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - artrack-tracks
+      summary: List Tracks
+      description: List tracks
+      operationId: list_tracks_artrack_tracks__get
+      parameters:
+      - name: visibility
+        in: query
+        required: false
+        schema:
+          type: string
+          title: Visibility
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TrackResponse'
+                title: Response List Tracks Artrack Tracks  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/tracks/{track_id}:
+    get:
+      tags:
+      - artrack-tracks
+      summary: Get Track
+      description: Get track details
+      operationId: get_track_artrack_tracks__track_id__get
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - artrack-tracks
+      summary: Delete Track
+      description: Delete a track
+      operationId: delete_track_artrack_tracks__track_id__delete
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - artrack-tracks
+      summary: Update Track
+      description: Update a track
+      operationId: update_track_artrack_tracks__track_id__put
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/{track_id}/waypoints:
+    post:
+      tags:
+      - artrack-waypoints
+      summary: Create Waypoints
+      description: Create waypoints for a track
+      operationId: create_waypoints_artrack__track_id__waypoints_post
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaypointBatch'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaypointBatchResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/waypoints/{waypoint_id}/status:
+    get:
+      tags:
+      - artrack-waypoints
+      summary: Get Waypoint Status
+      description: Get waypoint processing status
+      operationId: get_waypoint_status_artrack_waypoints__waypoint_id__status_get
+      parameters:
+      - name: waypoint_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Waypoint Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaypointStatusResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/tracks/{track_id}/waypoints/detail:
+    get:
+      tags:
+      - artrack-waypoints
+      summary: List Waypoints Detail
+      description: Return full waypoint details for a given track (coords, times,
+        media summary).
+      operationId: list_waypoints_detail_artrack_tracks__track_id__waypoints_detail_get
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 200
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WaypointDetailResponse'
+                title: Response List Waypoints Detail Artrack Tracks  Track Id  Waypoints
+                  Detail Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/upload/{session_id}/{media_slot}:
+    post:
+      tags:
+      - artrack-waypoints
+      summary: Upload Media File
+      description: Upload media file for a waypoint
+      operationId: upload_media_file_artrack_upload__session_id___media_slot__post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: media_slot
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Media Slot
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_media_file_artrack_upload__session_id___media_slot__post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/upload/{session_id}/complete:
+    post:
+      tags:
+      - artrack-waypoints
+      summary: Complete Upload Session
+      description: Complete upload session and finalize waypoint
+      operationId: complete_upload_session_artrack_upload__session_id__complete_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Body_complete_upload_session_artrack_upload__session_id__complete_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/waypoints/:
+    get:
+      tags:
+      - artrack-waypoints
+      summary: List Waypoints
+      description: List waypoints
+      operationId: list_waypoints_artrack_waypoints__get
+      parameters:
+      - name: track_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          title: Track Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WaypointStatusResponse'
+                title: Response List Waypoints Artrack Waypoints  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/sync/status:
+    get:
+      tags:
+      - artrack-sync
+      summary: Get Sync Status
+      description: Get sync status for current user
+      operationId: get_sync_status_artrack_sync_status_get
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncStatus'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/sync/retry-failed:
+    post:
+      tags:
+      - artrack-sync
+      summary: Retry Failed Uploads
+      description: Retry failed uploads
+      operationId: retry_failed_uploads_artrack_sync_retry_failed_post
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/sync/user-stats:
+    get:
+      tags:
+      - artrack-sync
+      summary: Get User Stats
+      description: Get detailed user statistics
+      operationId: get_user_stats_artrack_sync_user_stats_get
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/sync/cleanup:
+    post:
+      tags:
+      - artrack-sync
+      summary: Cleanup Failed Data
+      description: Clean up failed uploads and orphaned data
+      operationId: cleanup_failed_data_artrack_sync_cleanup_post
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/sync/health:
+    get:
+      tags:
+      - artrack-sync
+      summary: Health Check
+      description: Health check endpoint
+      operationId: health_check_artrack_sync_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /artrack/tracks/{track_id}/gps-points:
+    post:
+      tags:
+      - artrack-gps
+      summary: Create Gps Point
+      description: Create a single GPS point for real-time tracking
+      operationId: create_gps_point_artrack_tracks__track_id__gps_points_post
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GPSPointCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GPSPointResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - artrack-gps
+      summary: Get Gps Points
+      description: Get GPS track points for a track
+      operationId: get_gps_points_artrack_tracks__track_id__gps_points_get
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1000
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GPSPointResponse'
+                title: Response Get Gps Points Artrack Tracks  Track Id  Gps Points
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - artrack-gps
+      summary: Clear Gps Points
+      description: Clear all GPS points for a track (owner only)
+      operationId: clear_gps_points_artrack_tracks__track_id__gps_points_delete
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Clear Gps Points Artrack Tracks  Track Id  Gps Points
+                  Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/tracks/{track_id}/gps-points/batch:
+    post:
+      tags:
+      - artrack-gps
+      summary: Create Gps Point Batch
+      description: Create multiple GPS points in a batch for efficient sync
+      operationId: create_gps_point_batch_artrack_tracks__track_id__gps_points_batch_post
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GPSPointBatchCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GPSPointBatchResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/tracks/{track_id}/gps-stats:
+    get:
+      tags:
+      - artrack-gps
+      summary: Get Gps Track Statistics
+      description: Get comprehensive GPS track statistics
+      operationId: get_gps_track_statistics_artrack_tracks__track_id__gps_stats_get
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GPSTrackStatsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/tracks/batch-status/{batch_id}:
+    get:
+      tags:
+      - artrack-gps
+      summary: Get Batch Processing Status
+      description: Get the processing status of a GPS point batch
+      operationId: get_batch_processing_status_artrack_tracks_batch_status__batch_id__get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Batch Processing Status Artrack Tracks Batch Status  Batch
+                  Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/stats/overview:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Overview Stats
+      operationId: admin_overview_stats_artrack_admin_stats_overview_get
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/users:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Users
+      operationId: admin_users_artrack_admin_users_get
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/tracks:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Tracks
+      operationId: admin_tracks_artrack_admin_tracks_get
+      parameters:
+      - name: visibility
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Visibility
+      - name: track_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Track Type
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/waypoints/moderation:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Moderation Queue
+      operationId: admin_moderation_queue_artrack_admin_waypoints_moderation_get
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: pending
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/waypoints/{waypoint_id}/moderate:
+    post:
+      tags:
+      - artrack-admin
+      summary: Admin Moderate Waypoint
+      operationId: admin_moderate_waypoint_artrack_admin_waypoints__waypoint_id__moderate_post
+      parameters:
+      - name: waypoint_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Waypoint Id
+      - name: action
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Action
+      - name: reason
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/system/health:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin System Health
+      operationId: admin_system_health_artrack_admin_system_health_get
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/activity/feed:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Activity Feed
+      description: Return a mixed feed of recent activities (waypoints, tracks, users).
+      operationId: admin_activity_feed_artrack_admin_activity_feed_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/analytics/usage:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Analytics Usage
+      description: "Return usage analytics series and breakdowns for charts.\n\nResponse\
+        \ shape:\n{\n  \"series\": [ { \"date\": \"YYYY-MM-DD\", \"users\": int, \"\
+        tracks\": int, \"waypoints\": int } ],\n  \"trackTypes\": [ { \"name\": str,\
+        \ \"value\": int, \"color\": str } ],\n  \"storage\": [ { \"date\": \"YYYY-MM-DD\"\
+        , \"storage\": float } ]  # GB\n}"
+      operationId: admin_analytics_usage_artrack_admin_analytics_usage_get
+      parameters:
+      - name: timeframe
+        in: query
+        required: false
+        schema:
+          type: string
+          default: 7d
+          title: Timeframe
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/analytics/performance:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Analytics Performance
+      description: Return performance metrics. If unavailable, return null values
+        so UI shows N/A.
+      operationId: admin_analytics_performance_artrack_admin_analytics_performance_get
+      parameters:
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/logs/errors:
+    get:
+      tags:
+      - artrack-admin
+      summary: Admin Logs Errors
+      description: Return recent error/warning log lines from api.log if present.
+      operationId: admin_logs_errors_artrack_admin_logs_errors_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/admin/tracks/{track_id}:
+    delete:
+      tags:
+      - artrack-admin
+      summary: Admin Delete Track
+      description: Delete a track as admin (bypasses ownership).
+      operationId: admin_delete_track_artrack_admin_tracks__track_id__delete
+      parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Track Id
+      - name: X-API-KEY
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /artrack/health:
+    get:
+      summary: Artrack Health
+      operationId: artrack_health_artrack_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+components:
+  schemas:
+    AuthResponse:
+      properties:
+        user_id:
+          type: integer
+          title: User Id
+        access_token:
+          type: string
+          title: Access Token
+        api_key:
+          type: string
+          title: Api Key
+        trust_level:
+          type: string
+          title: Trust Level
+        expires_in:
+          type: integer
+          title: Expires In
+          default: 86400
+      type: object
+      required:
+      - user_id
+      - access_token
+      - api_key
+      - trust_level
+      title: AuthResponse
+    Body_complete_upload_session_artrack_upload__session_id__complete_post:
+      properties:
+        waypoint_id:
+          type: integer
+          title: Waypoint Id
+      type: object
+      required:
+      - waypoint_id
+      title: Body_complete_upload_session_artrack_upload__session_id__complete_post
+    Body_upload_media_file_artrack_upload__session_id___media_slot__post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+        waypoint_id:
+          type: integer
+          title: Waypoint Id
+        media_type:
+          type: string
+          title: Media Type
+      type: object
+      required:
+      - file
+      - waypoint_id
+      - media_type
+      title: Body_upload_media_file_artrack_upload__session_id___media_slot__post
+    DepthJobRequest:
+      properties:
+        image:
+          type: string
+          title: Image
+      type: object
+      required:
+      - image
+      title: DepthJobRequest
+    GPSPointBatchCreate:
+      properties:
+        trackId:
+          type: integer
+          title: Trackid
+        points:
+          items:
+            $ref: '#/components/schemas/GPSPointCreate'
+          type: array
+          title: Points
+        batchId:
+          type: string
+          title: Batchid
+      type: object
+      required:
+      - trackId
+      - points
+      - batchId
+      title: GPSPointBatchCreate
+    GPSPointBatchResponse:
+      properties:
+        batchId:
+          type: string
+          title: Batchid
+        trackId:
+          type: integer
+          title: Trackid
+        pointsCreated:
+          type: integer
+          title: Pointscreated
+        pointsSkipped:
+          type: integer
+          title: Pointsskipped
+        processingTimeMs:
+          type: number
+          title: Processingtimems
+      type: object
+      required:
+      - batchId
+      - trackId
+      - pointsCreated
+      - pointsSkipped
+      - processingTimeMs
+      title: GPSPointBatchResponse
+    GPSPointCreate:
+      properties:
+        trackId:
+          type: integer
+          title: Trackid
+        latitude:
+          type: number
+          maximum: 90.0
+          minimum: -90.0
+          title: Latitude
+        longitude:
+          type: number
+          maximum: 180.0
+          minimum: -180.0
+          title: Longitude
+        altitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Altitude
+        accuracy:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Accuracy
+        timestamp:
+          type: string
+          format: date-time
+          title: Timestamp
+        speed:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Speed
+        course:
+          anyOf:
+          - type: number
+            exclusiveMaximum: 360.0
+            minimum: 0.0
+          - type: 'null'
+          title: Course
+        isFromKalmanFilter:
+          type: boolean
+          title: Isfromkalmanfilter
+          default: false
+      type: object
+      required:
+      - trackId
+      - latitude
+      - longitude
+      - accuracy
+      - timestamp
+      title: GPSPointCreate
+    GPSPointResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        trackId:
+          type: integer
+          title: Trackid
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+        altitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Altitude
+        accuracy:
+          type: number
+          title: Accuracy
+        timestamp:
+          type: string
+          format: date-time
+          title: Timestamp
+        speed:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Speed
+        course:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Course
+        isFromKalmanFilter:
+          type: boolean
+          title: Isfromkalmanfilter
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+      type: object
+      required:
+      - id
+      - trackId
+      - latitude
+      - longitude
+      - altitude
+      - accuracy
+      - timestamp
+      - speed
+      - course
+      - isFromKalmanFilter
+      - createdAt
+      title: GPSPointResponse
+    GPSTrackStatsResponse:
+      properties:
+        trackId:
+          type: integer
+          title: Trackid
+        totalPoints:
+          type: integer
+          title: Totalpoints
+        totalDistance:
+          type: number
+          title: Totaldistance
+        trackDuration:
+          type: number
+          title: Trackduration
+        averageSpeed:
+          type: number
+          title: Averagespeed
+        maxSpeed:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Maxspeed
+        minAltitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Minaltitude
+        maxAltitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Maxaltitude
+        startTime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Starttime
+        endTime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Endtime
+      type: object
+      required:
+      - trackId
+      - totalPoints
+      - totalDistance
+      - trackDuration
+      - averageSpeed
+      - maxSpeed
+      - minAltitude
+      - maxAltitude
+      - startTime
+      - endTime
+      title: GPSTrackStatsResponse
+    GoogleAuthRequest:
+      properties:
+        id_token:
+          type: string
+          title: Id Token
+        device_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device Id
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+      type: object
+      required:
+      - id_token
+      title: GoogleAuthRequest
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    MediaAnalysis:
+      properties:
+        description:
+          type: string
+          title: Description
+        categories:
+          items:
+            type: string
+          type: array
+          title: Categories
+        safety_rating:
+          type: string
+          title: Safety Rating
+        quality_score:
+          type: number
+          title: Quality Score
+        confidence:
+          type: number
+          title: Confidence
+      type: object
+      required:
+      - description
+      - categories
+      - safety_rating
+      - quality_score
+      - confidence
+      title: MediaAnalysis
+    MediaFileResponse:
+      properties:
+        media_id:
+          type: integer
+          title: Media Id
+        type:
+          type: string
+          title: Type
+        processing_state:
+          type: string
+          title: Processing State
+        analysis:
+          anyOf:
+          - $ref: '#/components/schemas/MediaAnalysis'
+          - type: 'null'
+        thumbnail_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Thumbnail Url
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+      type: object
+      required:
+      - media_id
+      - type
+      - processing_state
+      title: MediaFileResponse
+    MediaUploadUrl:
+      properties:
+        media_slot:
+          type: integer
+          title: Media Slot
+        upload_url:
+          type: string
+          title: Upload Url
+        max_size_bytes:
+          type: integer
+          title: Max Size Bytes
+      type: object
+      required:
+      - media_slot
+      - upload_url
+      - max_size_bytes
+      title: MediaUploadUrl
+    Prompt:
+      properties:
+        text:
+          type: string
+          title: Text
+        image:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Image
+        audio:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Audio
+        video:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Video
+      type: object
+      required:
+      - text
+      title: Prompt
+    QuotaInfo:
+      properties:
+        storage_bytes:
+          type: integer
+          title: Storage Bytes
+        storage_limit:
+          type: integer
+          title: Storage Limit
+        uploads_this_month:
+          type: integer
+          title: Uploads This Month
+        upload_limit:
+          type: integer
+          title: Upload Limit
+      type: object
+      required:
+      - storage_bytes
+      - storage_limit
+      - uploads_this_month
+      - upload_limit
+      title: QuotaInfo
+    SyncStatus:
+      properties:
+        user_id:
+          type: integer
+          title: User Id
+        last_sync_at:
+          type: string
+          format: date-time
+          title: Last Sync At
+        pending_uploads:
+          type: integer
+          title: Pending Uploads
+        pending_analysis:
+          type: integer
+          title: Pending Analysis
+        failed_uploads:
+          type: integer
+          title: Failed Uploads
+        quota_used:
+          $ref: '#/components/schemas/QuotaInfo'
+      type: object
+      required:
+      - user_id
+      - last_sync_at
+      - pending_uploads
+      - pending_analysis
+      - failed_uploads
+      - quota_used
+      title: SyncStatus
+    TrackCreate:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          type: string
+          title: Description
+          default: ''
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+          default: private
+        track_type:
+          type: string
+          title: Track Type
+          default: hiking
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+          default: []
+        client_track_id:
+          type: string
+          title: Client Track Id
+      type: object
+      required:
+      - name
+      - client_track_id
+      title: TrackCreate
+    TrackResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        description:
+          type: string
+          title: Description
+        visibility:
+          type: string
+          title: Visibility
+        track_type:
+          type: string
+          title: Track Type
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        client_track_id:
+          type: string
+          title: Client Track Id
+        stats:
+          $ref: '#/components/schemas/TrackStats'
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - name
+      - description
+      - visibility
+      - track_type
+      - tags
+      - client_track_id
+      - stats
+      - created_at
+      - updated_at
+      title: TrackResponse
+    TrackStats:
+      properties:
+        total_waypoints:
+          type: integer
+          title: Total Waypoints
+        processed_waypoints:
+          type: integer
+          title: Processed Waypoints
+        pending_analysis:
+          type: integer
+          title: Pending Analysis
+        distance_meters:
+          type: number
+          title: Distance Meters
+        duration_seconds:
+          type: integer
+          title: Duration Seconds
+      type: object
+      required:
+      - total_waypoints
+      - processed_waypoints
+      - pending_analysis
+      - distance_meters
+      - duration_seconds
+      title: TrackStats
+    UploadSession:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+        media_upload_urls:
+          items:
+            $ref: '#/components/schemas/MediaUploadUrl'
+          type: array
+          title: Media Upload Urls
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+      type: object
+      required:
+      - session_id
+      - media_upload_urls
+      - expires_at
+      title: UploadSession
+    UserCreate:
+      properties:
+        email:
+          type: string
+          title: Email
+        password:
+          type: string
+          title: Password
+        display_name:
+          type: string
+          title: Display Name
+        device_id:
+          type: string
+          title: Device Id
+      type: object
+      required:
+      - email
+      - password
+      - display_name
+      - device_id
+      title: UserCreate
+    UserLogin:
+      properties:
+        email:
+          type: string
+          title: Email
+        password:
+          type: string
+          title: Password
+        device_id:
+          type: string
+          title: Device Id
+      type: object
+      required:
+      - email
+      - password
+      - device_id
+      title: UserLogin
+    UserResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        email:
+          type: string
+          title: Email
+        display_name:
+          type: string
+          title: Display Name
+        trust_level:
+          type: string
+          title: Trust Level
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - email
+      - display_name
+      - trust_level
+      - created_at
+      title: UserResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    Visibility:
+      type: string
+      enum:
+      - public
+      - followers
+      - private
+      title: Visibility
+    WaypointBatch:
+      properties:
+        waypoints:
+          items:
+            $ref: '#/components/schemas/WaypointCreate'
+          type: array
+          title: Waypoints
+      type: object
+      required:
+      - waypoints
+      title: WaypointBatch
+    WaypointBatchResponse:
+      properties:
+        results:
+          items:
+            $ref: '#/components/schemas/WaypointCreateResponse'
+          type: array
+          title: Results
+      type: object
+      required:
+      - results
+      title: WaypointBatchResponse
+    WaypointCreate:
+      properties:
+        client_waypoint_id:
+          type: string
+          title: Client Waypoint Id
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+        altitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Altitude
+        accuracy:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Accuracy
+        recorded_at:
+          type: string
+          format: date-time
+          title: Recorded At
+        user_description:
+          type: string
+          title: User Description
+          default: ''
+        media_count:
+          type: integer
+          title: Media Count
+          default: 0
+      type: object
+      required:
+      - client_waypoint_id
+      - latitude
+      - longitude
+      - recorded_at
+      title: WaypointCreate
+    WaypointCreateResponse:
+      properties:
+        client_waypoint_id:
+          type: string
+          title: Client Waypoint Id
+        waypoint_id:
+          type: integer
+          title: Waypoint Id
+        status:
+          type: string
+          title: Status
+        upload_session:
+          anyOf:
+          - $ref: '#/components/schemas/UploadSession'
+          - type: 'null'
+      type: object
+      required:
+      - client_waypoint_id
+      - waypoint_id
+      - status
+      title: WaypointCreateResponse
+    WaypointDetailResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        track_id:
+          type: integer
+          title: Track Id
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+        altitude:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Altitude
+        accuracy:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Accuracy
+        recorded_at:
+          type: string
+          format: date-time
+          title: Recorded At
+        user_description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User Description
+        processing_state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Processing State
+        moderation_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Moderation Status
+        waypoint_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Waypoint Type
+        media:
+          items:
+            $ref: '#/components/schemas/MediaFileResponse'
+          type: array
+          title: Media
+          default: []
+      type: object
+      required:
+      - id
+      - track_id
+      - latitude
+      - longitude
+      - recorded_at
+      title: WaypointDetailResponse
+    WaypointStatusResponse:
+      properties:
+        waypoint_id:
+          type: integer
+          title: Waypoint Id
+        processing_state:
+          type: string
+          title: Processing State
+        media:
+          items:
+            $ref: '#/components/schemas/MediaFileResponse'
+          type: array
+          title: Media
+        moderation_status:
+          type: string
+          title: Moderation Status
+        published_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Published At
+      type: object
+      required:
+      - waypoint_id
+      - processing_state
+      - media
+      - moderation_status
+      title: WaypointStatusResponse
+  securitySchemes:
+    APIKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-KEY

@@ -1,0 +1,13 @@
+fastapi>=0.104.0
+uvicorn>=0.24.0
+sqlalchemy>=2.0.0
+databases[sqlite]>=0.8.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+httpx>=0.25.0
+pillow>=10.0.0
+python-magic>=0.4.27
+aiofiles>=23.2.0
+firebase-admin>=6.5.0
