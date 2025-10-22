@@ -64,3 +64,4 @@ pytest
 # Format code
 black .
 ```
+# Test deployment setup
