@@ -14,19 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Build application
         run: echo 'No build needed for FastAPI'
-        env:
-          NODE_ENV: production
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
@@ -50,9 +48,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            pip install -r requirements.txt
-
-            echo 'No build needed for FastAPI'
+            /root/.pyenv/versions/3.11.9/bin/pip install -r requirements.txt
 
             if [ -d "$DEPLOY_PATH" ]; then
               echo "Creating backup..."
@@ -60,12 +56,21 @@ jobs:
               cp -r "$DEPLOY_PATH" "$BACKUP_PATH"
             fi
 
-            echo "Deploying new build..."
+            echo "Deploying FastAPI application..."
             mkdir -p "$DEPLOY_PATH"
-            rsync -av --delete "$REPO_PATH/dist/" "$DEPLOY_PATH/"
+            rsync -av --delete \
+              --exclude='.git' \
+              --exclude='__pycache__' \
+              --exclude='*.pyc' \
+              --exclude='.env' \
+              --exclude='venv' \
+              "$REPO_PATH/" "$DEPLOY_PATH/"
 
             chown -R www-data:www-data "$DEPLOY_PATH"
             chmod -R 755 "$DEPLOY_PATH"
+
+            echo "Restarting artrack-api service..."
+            systemctl restart artrack-api
 
             echo "Deployment completed successfully!"
             echo "Backup saved to: $BACKUP_PATH"
