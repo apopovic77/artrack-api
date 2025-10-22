@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from .models import StorageObject
-from storage.service import generic_storage
+from clients.storage_client import generic_storage
 
 
 async def save_file_and_record(

@@ -216,9 +216,9 @@ async def cleanup_failed_data(
         Waypoint.processing_state == "failed",
         Waypoint.updated_at < cleanup_threshold
     ).all()
-    
-    from storage import service as storage_service
-    
+
+    from clients import storage_client as storage_service
+
     for waypoint in old_failed_waypoints:
         # Delete associated media files
         media_files = db.query(MediaFile).filter(MediaFile.waypoint_id == waypoint.id).all()

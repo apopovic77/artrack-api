@@ -12,7 +12,7 @@ import os
 from ..database import get_db
 from ..models import User, Track, Waypoint, MediaFile, AnalysisJob, StorageObject
 from ..auth import get_current_user
-from storage.service import generic_storage
+from clients.storage_client import generic_storage
 
 router = APIRouter()
 logger = logging.getLogger("artrack.admin")

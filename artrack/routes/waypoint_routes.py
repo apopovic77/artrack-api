@@ -19,7 +19,7 @@ from ..models import (
 )
 from ..auth import get_current_user
 from artrack.storage_domain import save_file_and_record
-from storage.service import generic_storage
+from clients.storage_client import generic_storage, enqueue_ai_safety_and_transcoding
 from ..analysis import analysis_service
 from pydantic import BaseModel
 from typing import Optional, List
@@ -373,8 +373,7 @@ async def upload_media_file(
             is_public=False,
         )
         # Enqueue AI safety and transcoding jobs for all supported media types
-        from storage.service import enqueue_ai_safety_and_transcoding
-        await enqueue_ai_safety_and_transcoding(storage_obj)
+        await enqueue_ai_safety_and_transcoding(storage_obj.id)
 
         # --- Robust GLB→USDZ queued retry when Mac is offline ---
         async def _mac_available(timeout: float = 3.0) -> bool:
@@ -815,8 +814,7 @@ async def complete_chunked_upload(
         is_public=False,
     )
     # Enqueue AI safety and transcoding jobs for all supported media types
-    from storage.service import enqueue_ai_safety_and_transcoding
-    await enqueue_ai_safety_and_transcoding(storage_obj)
+    await enqueue_ai_safety_and_transcoding(storage_obj.id)
 
     media_file = MediaFile(
         waypoint_id=waypoint_id,
