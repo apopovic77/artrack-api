@@ -36,26 +36,34 @@ jobs:
           script: |
             set -e
 
-            REPO_PATH="/Volumes/DatenAP/Code/artrack-api"
+            REPO_URL="https://github.com/apopovic77/artrack-api.git"
+            REPO_PATH="/opt/repos/artrack-api"
             DEPLOY_PATH="/var/www/api-artrack.arkturian.com"
             BACKUP_DIR="/var/backups"
             BACKUP_PREFIX="artrack-api"
             TIMESTAMP=$(date +%Y%m%d-%H%M%S)
             BACKUP_PATH="$BACKUP_DIR/${BACKUP_PREFIX}-${TIMESTAMP}"
 
-            cd "$REPO_PATH"
+            # Clone or update repo
+            if [ ! -d "$REPO_PATH" ]; then
+              echo "Cloning repository..."
+              mkdir -p /opt/repos
+              git clone "$REPO_URL" "$REPO_PATH"
+            fi
 
+            cd "$REPO_PATH"
             git fetch origin main
             git reset --hard origin/main
 
-            /root/.pyenv/versions/3.11.9/bin/pip install -r requirements.txt
-
+            # Create backup
             if [ -d "$DEPLOY_PATH" ]; then
               echo "Creating backup..."
               mkdir -p "$BACKUP_DIR"
               cp -r "$DEPLOY_PATH" "$BACKUP_PATH"
+              echo "Backup saved to: $BACKUP_PATH"
             fi
 
+            # Deploy
             echo "Deploying FastAPI application..."
             mkdir -p "$DEPLOY_PATH"
             rsync -av --delete \
@@ -66,14 +74,20 @@ jobs:
               --exclude='venv' \
               "$REPO_PATH/" "$DEPLOY_PATH/"
 
+            # Install dependencies in deployment directory
+            cd "$DEPLOY_PATH"
+            /root/.pyenv/versions/3.11.9/bin/pip install -r requirements.txt
+
+            # Set permissions
             chown -R www-data:www-data "$DEPLOY_PATH"
             chmod -R 755 "$DEPLOY_PATH"
 
+            # Restart service
             echo "Restarting artrack-api service..."
             systemctl restart artrack-api
 
-            echo "Deployment completed successfully!"
-            echo "Backup saved to: $BACKUP_PATH"
+            echo "✅ Deployment completed successfully!"
+            systemctl status artrack-api --no-pager -l
 
       - name: Notify on success
         if: success()
