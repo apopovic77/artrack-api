@@ -12,6 +12,11 @@ Handles:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from artrack.database import engine, Base
+
+# Import all models BEFORE creating tables to ensure relationships work
+from artrack import models
+from artrack import collaboration_models
+
 from artrack.routes import (
     track_routes,
     waypoint_routes,
