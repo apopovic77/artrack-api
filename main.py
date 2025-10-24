@@ -52,7 +52,7 @@ app.include_router(gps_routes.router, prefix="/gps", tags=["GPS"])
 app.include_router(snap_routes.router, prefix="/snap", tags=["Snap to Road"])
 app.include_router(sync_routes.router, prefix="/sync", tags=["Sync"])
 app.include_router(segments_routes.router, prefix="/segments", tags=["Segments"])
-app.include_router(routes_routes.router, prefix="/routes", tags=["Routes"])
+app.include_router(routes_routes.router, prefix="/tracks", tags=["Routes"])
 app.include_router(guide_routes.router, prefix="/guides", tags=["Audio Guides"])
 
 @app.get("/")
