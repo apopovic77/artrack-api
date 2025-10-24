@@ -46,7 +46,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_routes.router, prefix="/auth", tags=["Authentication"])
 app.include_router(track_routes.router, prefix="/tracks", tags=["Tracks"])
-app.include_router(waypoint_routes.router, prefix="/waypoints", tags=["Waypoints"])
+app.include_router(waypoint_routes.router, prefix="", tags=["Waypoints"])
 app.include_router(collaboration_routes.router, prefix="/collaboration", tags=["Collaboration"])
 app.include_router(gps_routes.router, prefix="/gps", tags=["GPS"])
 app.include_router(snap_routes.router, prefix="/snap", tags=["Snap to Road"])
