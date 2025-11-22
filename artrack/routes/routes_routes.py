@@ -879,16 +879,17 @@ async def generate_route_intro(
     Uses the track's guide config to generate a welcome/intro audio that plays when
     the user selects this route in the app.
     """
-    # Imports inside function to avoid module-level crashes if deps are missing
+    # Imports inside function to avoid module-level crashes
     try:
-        from openai import AsyncOpenAI
+        import httpx
         from datetime import datetime
         import os
         import traceback
+        import json
     except ImportError as e:
         raise HTTPException(status_code=500, detail=f"Configuration Error: Missing required module. {str(e)}")
 
-    # Wrap entire logic in try-except to ensure CORS headers are always sent via FastAPI exception handlers
+    # Wrap entire logic in try-except
     try:
         # Check track permissions
         track = db.query(Track).filter(Track.id == track_id).first()
@@ -907,21 +908,21 @@ async def generate_route_intro(
 
         # Get guide config from metadata_json
         metadata = track.metadata_json or {}
-        # Fallback to 'guide' if 'guide_config' is missing (supports both old and new format)
         guide_config = metadata.get('guide', metadata.get('guide_config', {}))
 
-        # Initialize OpenAI client (Async)
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-             raise HTTPException(status_code=500, detail="Server Configuration Error: OPENAI_API_KEY is not set.")
-        
-        client = AsyncOpenAI(api_key=api_key)
+        # AI Service Configuration
+        AI_SERVICE_URL = "https://api-ai.arkturian.com"
+        AI_API_KEY = "Inetpass1" # Using internal key
+        HEADERS = {
+            "X-API-KEY": AI_API_KEY,
+            "Content-Type": "application/json"
+        }
 
         # Generate intro text
         if body.custom_text:
             intro_text = body.custom_text
         else:
-            # Generate intro text using GPT
+            # Generate intro text using AI Service (ChatGPT)
             prompt = f"""Du bist ein Wanderführer. Generiere eine kurze, freundliche Begrüßung (max 30 Sekunden Sprechzeit) für die Route "{route.name}".
 
 Track: {track.name}
@@ -936,13 +937,26 @@ Die Begrüßung soll:
 
 Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Text."""
 
-            response = await client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=200
-            )
-
-            intro_text = response.choices[0].message.content
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{AI_SERVICE_URL}/ai/chatgpt?model=gpt-4",
+                    json={"text": prompt, "images": []},
+                    headers=HEADERS
+                )
+                
+                if response.status_code != 200:
+                    raise Exception(f"AI Text Generation failed: {response.text}")
+                
+                ai_data = response.json()
+                # Handle flexible response formats from AI service
+                if 'choices' in ai_data and len(ai_data['choices']) > 0:
+                    intro_text = ai_data['choices'][0]['message']['content']
+                elif 'content' in ai_data:
+                    intro_text = ai_data['content']
+                elif 'message' in ai_data:
+                    intro_text = ai_data['message']
+                else:
+                    intro_text = str(ai_data) # Fallback
 
         if body.dry_run:
             return {
@@ -952,56 +966,59 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
                 "audio_url": None
             }
 
-        # Generate audio using OpenAI TTS
+        # Generate audio using AI Service (Generate Speech)
         voice = guide_config.get('voice', {}).get('style', 'nova')
         if voice == 'warm_guide':
             voice = 'nova'
+            
+        speed = guide_config.get('voice', {}).get('speed', 0.9)
+        
+        user_email = getattr(current_user, 'email', 'system@arkturian.com')
 
-        speech_response = await client.audio.speech.create(
-            model="tts-1",
-            voice=voice,
-            input=intro_text,
-            speed=guide_config.get('voice', {}).get('speed', 0.9)
-        )
+        speech_payload = {
+            "id": f"route-intro-{route_id}-{int(datetime.now().timestamp())}",
+            "timestamp": datetime.now().isoformat(),
+            "content": {
+                "text": intro_text,
+                "language": guide_config.get('language', 'de-DE'),
+                "voice": voice,
+                "speed": speed
+            },
+            "config": {
+                "provider": "openai", # Or use guide_config.get('voice', {}).get('provider', 'openai')
+                "output_format": "mp3"
+            },
+            "save_options": {
+                "is_public": True,
+                "collection_id": "route_intros",
+                "owner_email": user_email
+            }
+        }
 
-        # Save audio file
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"route_{route_id}_intro_{timestamp}.mp3"
-        # Use a more robust path handling
-        base_path = "/var/www/audio/route_intros"
-        filepath = os.path.join(base_path, filename)
-
-        # Ensure directory exists
-        if not os.path.exists(base_path):
-            try:
-                os.makedirs(base_path, exist_ok=True)
-                # Set permissions if we created it (best effort)
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{AI_SERVICE_URL}/ai/generate_speech",
+                json=speech_payload,
+                headers=HEADERS
+            )
+            
+            if response.status_code != 200:
+                error_detail = response.text
+                # Try to parse detail from JSON
                 try:
-                    os.chmod(base_path, 0o775)
+                    error_json = response.json()
+                    if 'detail' in error_json:
+                        error_detail = error_json['detail']
                 except:
                     pass
-            except OSError as e:
-                raise HTTPException(status_code=500, detail=f"Server storage error: Cannot create directory {base_path}. {str(e)}")
-
-        # Write file
-        # Note: speech.create returns raw bytes, but for async we might need to handle it differently
-        # The OpenAI async client returns a response object where we can get content/iter_bytes
-        # But speech.create in async returns a HttpxBinaryResponseContent
-        
-        # Correct way to stream to file asynchronously or just write bytes
-        # speech_response is a HttpxBinaryResponseContent which has .content (bytes) or .iter_bytes()
-        # We can just use .content for small files like intros
-        
-        with open(filepath, 'wb') as f:
-            f.write(speech_response.content)
-
-        # Ensure file is readable by web server
-        try:
-            os.chmod(filepath, 0o644)
-        except:
-            pass
-
-        audio_url = f"https://api.arkturian.com/audio/route_intros/{filename}"
+                raise Exception(f"AI Audio Generation failed: {error_detail}")
+            
+            result = response.json()
+            
+            if not result.get('file_url'):
+                raise Exception("AI Service did not return a file URL")
+                
+            audio_url = result['file_url']
 
         # Store intro_audio_url in route metadata
         route.intro_audio_url = audio_url
@@ -1017,8 +1034,7 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
     except HTTPException:
         raise
     except Exception as e:
-        # Catch ALL other errors to ensure JSON response (and CORS headers)
         print(f"❌ Audio Generation Error: {str(e)}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Process Error: {str(e)}")
 
