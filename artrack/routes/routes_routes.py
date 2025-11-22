@@ -865,6 +865,7 @@ async def get_track_routes_overview(
 async def generate_route_intro(
     track_id: int,
     route_id: int,
+    dry_run: bool = False,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -922,6 +923,14 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
     )
 
     intro_text = response.choices[0].message.content
+
+    if dry_run:
+        return {
+            "route_id": route_id,
+            "route_name": route.name,
+            "intro_text": intro_text,
+            "audio_url": None
+        }
 
     # Generate audio using OpenAI TTS
     voice = guide_config.get('voice', {}).get('style', 'nova')
