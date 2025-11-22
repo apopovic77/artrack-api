@@ -901,15 +901,17 @@ async def generate_route_intro(
 
     # Get guide config from metadata_json
     metadata = track.metadata_json or {}
-    guide_config = metadata.get('guide_config', {})
+    # Fallback to 'guide' if 'guide_config' is missing (supports both old and new format)
+    guide_config = metadata.get('guide', metadata.get('guide_config', {}))
+
+    # Initialize OpenAI client
+    client = OpenAI()
 
     # Generate intro text
     if body.custom_text:
         intro_text = body.custom_text
     else:
         # Generate intro text using GPT
-        client = OpenAI()
-
         prompt = f"""Du bist ein Wanderführer. Generiere eine kurze, freundliche Begrüßung (max 30 Sekunden Sprechzeit) für die Route "{route.name}".
 
 Track: {track.name}
@@ -941,8 +943,6 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
         }
 
     # Generate audio using OpenAI TTS
-    if not body.custom_text:
-        client = OpenAI() # Ensure client exists if we skipped GPT block
     voice = guide_config.get('voice', {}).get('style', 'nova')
     if voice == 'warm_guide':
         voice = 'nova'
