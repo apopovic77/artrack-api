@@ -1044,3 +1044,55 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Process Error: {str(e)}")
 
+
+class NarrativeCaptureRequest(BaseModel):
+    element_id: str  # Expects "wp_123" or just "123"
+    text: str
+    overwrite: bool = True
+
+@router.post("/{track_id}/narratives/capture")
+async def capture_narrative(
+    track_id: int,
+    body: NarrativeCaptureRequest,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Capture generated narrative from App Simulation and save to Waypoint.
+    
+    This enables 'Recorder Mode': App generates text -> Server saves it -> Dashboard shows it.
+    """
+    # Check track permissions
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Parse ID (strip "wp_" prefix if present)
+    # Also handle pure segment IDs if possible, but for now rely on Waypoint IDs
+    wp_id_str = body.element_id.replace("wp_", "")
+    
+    # Safety check: ensure it's a number
+    if not wp_id_str.isdigit():
+        raise HTTPException(status_code=400, detail=f"Invalid element_id format: {body.element_id}. Expected numeric ID or 'wp_ID'.")
+    
+    waypoint_id = int(wp_id_str)
+
+    # Find Waypoint (POI or Segment Marker)
+    waypoint = db.query(Waypoint).filter(
+        Waypoint.id == waypoint_id,
+        Waypoint.track_id == track_id
+    ).first()
+
+    if not waypoint:
+        raise HTTPException(status_code=404, detail=f"Waypoint {waypoint_id} not found in track {track_id}")
+
+    # Update description
+    if body.overwrite or not waypoint.user_description:
+        waypoint.user_description = body.text
+        db.commit()
+        return {"success": True, "id": waypoint.id, "updated": True, "text_preview": body.text[:50]}
+    
+    return {"success": True, "id": waypoint.id, "updated": False, "reason": "overwrite_disabled"}
+
