@@ -875,44 +875,54 @@ async def generate_route_intro(
 ):
     """
     Generate intro audio for a route.
-
+    
     Uses the track's guide config to generate a welcome/intro audio that plays when
     the user selects this route in the app.
     """
-    from openai import OpenAI
-    import requests as req
-    from datetime import datetime
-    import os
+    # Imports inside function to avoid module-level crashes if deps are missing
+    try:
+        from openai import AsyncOpenAI
+        from datetime import datetime
+        import os
+        import traceback
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Configuration Error: Missing required module. {str(e)}")
 
-    # Check track permissions
-    track = db.query(Track).filter(Track.id == track_id).first()
-    if not track:
-        raise HTTPException(status_code=404, detail="Track not found")
-    if track.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Wrap entire logic in try-except to ensure CORS headers are always sent via FastAPI exception handlers
+    try:
+        # Check track permissions
+        track = db.query(Track).filter(Track.id == track_id).first()
+        if not track:
+            raise HTTPException(status_code=404, detail="Track not found")
+        if track.created_by != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
-    # Get route
-    route = db.query(TrackRouteModel).filter(
-        TrackRouteModel.id == route_id,
-        TrackRouteModel.track_id == track_id
-    ).first()
-    if not route:
-        raise HTTPException(status_code=404, detail="Route not found")
+        # Get route
+        route = db.query(TrackRouteModel).filter(
+            TrackRouteModel.id == route_id,
+            TrackRouteModel.track_id == track_id
+        ).first()
+        if not route:
+            raise HTTPException(status_code=404, detail="Route not found")
 
-    # Get guide config from metadata_json
-    metadata = track.metadata_json or {}
-    # Fallback to 'guide' if 'guide_config' is missing (supports both old and new format)
-    guide_config = metadata.get('guide', metadata.get('guide_config', {}))
+        # Get guide config from metadata_json
+        metadata = track.metadata_json or {}
+        # Fallback to 'guide' if 'guide_config' is missing (supports both old and new format)
+        guide_config = metadata.get('guide', metadata.get('guide_config', {}))
 
-    # Initialize OpenAI client
-    client = OpenAI()
+        # Initialize OpenAI client (Async)
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+             raise HTTPException(status_code=500, detail="Server Configuration Error: OPENAI_API_KEY is not set.")
+        
+        client = AsyncOpenAI(api_key=api_key)
 
-    # Generate intro text
-    if body.custom_text:
-        intro_text = body.custom_text
-    else:
-        # Generate intro text using GPT
-        prompt = f"""Du bist ein Wanderführer. Generiere eine kurze, freundliche Begrüßung (max 30 Sekunden Sprechzeit) für die Route "{route.name}".
+        # Generate intro text
+        if body.custom_text:
+            intro_text = body.custom_text
+        else:
+            # Generate intro text using GPT
+            prompt = f"""Du bist ein Wanderführer. Generiere eine kurze, freundliche Begrüßung (max 30 Sekunden Sprechzeit) für die Route "{route.name}".
 
 Track: {track.name}
 Route: {route.name}
@@ -926,29 +936,28 @@ Die Begrüßung soll:
 
 Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Text."""
 
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200
-        )
+            response = await client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200
+            )
 
-        intro_text = response.choices[0].message.content
+            intro_text = response.choices[0].message.content
 
-    if body.dry_run:
-        return {
-            "route_id": route_id,
-            "route_name": route.name,
-            "intro_text": intro_text,
-            "audio_url": None
-        }
+        if body.dry_run:
+            return {
+                "route_id": route_id,
+                "route_name": route.name,
+                "intro_text": intro_text,
+                "audio_url": None
+            }
 
-    # Generate audio using OpenAI TTS
-    try:
+        # Generate audio using OpenAI TTS
         voice = guide_config.get('voice', {}).get('style', 'nova')
         if voice == 'warm_guide':
             voice = 'nova'
 
-        speech_response = client.audio.speech.create(
+        speech_response = await client.audio.speech.create(
             model="tts-1",
             voice=voice,
             input=intro_text,
@@ -968,13 +977,21 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
                 os.makedirs(base_path, exist_ok=True)
                 # Set permissions if we created it (best effort)
                 try:
-                    import shutil
                     os.chmod(base_path, 0o775)
                 except:
                     pass
             except OSError as e:
                 raise HTTPException(status_code=500, detail=f"Server storage error: Cannot create directory {base_path}. {str(e)}")
 
+        # Write file
+        # Note: speech.create returns raw bytes, but for async we might need to handle it differently
+        # The OpenAI async client returns a response object where we can get content/iter_bytes
+        # But speech.create in async returns a HttpxBinaryResponseContent
+        
+        # Correct way to stream to file asynchronously or just write bytes
+        # speech_response is a HttpxBinaryResponseContent which has .content (bytes) or .iter_bytes()
+        # We can just use .content for small files like intros
+        
         with open(filepath, 'wb') as f:
             f.write(speech_response.content)
 
@@ -997,10 +1014,11 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
             "audio_url": audio_url
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        # Log the full error
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"❌ Audio Generation Error: {error_details}")
-        raise HTTPException(status_code=500, detail=f"Audio generation failed: {str(e)}")
+        # Catch ALL other errors to ensure JSON response (and CORS headers)
+        print(f"❌ Audio Generation Error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
