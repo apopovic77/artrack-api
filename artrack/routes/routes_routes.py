@@ -943,37 +943,64 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
         }
 
     # Generate audio using OpenAI TTS
-    voice = guide_config.get('voice', {}).get('style', 'nova')
-    if voice == 'warm_guide':
-        voice = 'nova'
+    try:
+        voice = guide_config.get('voice', {}).get('style', 'nova')
+        if voice == 'warm_guide':
+            voice = 'nova'
 
-    speech_response = client.audio.speech.create(
-        model="tts-1",
-        voice=voice,
-        input=intro_text,
-        speed=guide_config.get('voice', {}).get('speed', 0.9)
-    )
+        speech_response = client.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=intro_text,
+            speed=guide_config.get('voice', {}).get('speed', 0.9)
+        )
 
-    # Save audio file
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"route_{route_id}_intro_{timestamp}.mp3"
-    filepath = f"/var/www/audio/route_intros/{filename}"
+        # Save audio file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"route_{route_id}_intro_{timestamp}.mp3"
+        # Use a more robust path handling
+        base_path = "/var/www/audio/route_intros"
+        filepath = os.path.join(base_path, filename)
 
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        # Ensure directory exists
+        if not os.path.exists(base_path):
+            try:
+                os.makedirs(base_path, exist_ok=True)
+                # Set permissions if we created it (best effort)
+                try:
+                    import shutil
+                    os.chmod(base_path, 0o775)
+                except:
+                    pass
+            except OSError as e:
+                raise HTTPException(status_code=500, detail=f"Server storage error: Cannot create directory {base_path}. {str(e)}")
 
-    with open(filepath, 'wb') as f:
-        f.write(speech_response.content)
+        with open(filepath, 'wb') as f:
+            f.write(speech_response.content)
 
-    audio_url = f"https://api.arkturian.com/audio/route_intros/{filename}"
+        # Ensure file is readable by web server
+        try:
+            os.chmod(filepath, 0o644)
+        except:
+            pass
 
-    # Store intro_audio_url in route metadata
-    route.intro_audio_url = audio_url
-    db.commit()
+        audio_url = f"https://api.arkturian.com/audio/route_intros/{filename}"
 
-    return {
-        "route_id": route_id,
-        "route_name": route.name,
-        "intro_text": intro_text,
-        "audio_url": audio_url
-    }
+        # Store intro_audio_url in route metadata
+        route.intro_audio_url = audio_url
+        db.commit()
+
+        return {
+            "route_id": route_id,
+            "route_name": route.name,
+            "intro_text": intro_text,
+            "audio_url": audio_url
+        }
+
+    except Exception as e:
+        # Log the full error
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ Audio Generation Error: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Audio generation failed: {str(e)}")
 
