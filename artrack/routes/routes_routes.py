@@ -861,11 +861,15 @@ async def get_track_routes_overview(
     }
 
 
+class GenerateIntroRequest(BaseModel):
+    dry_run: bool = False
+    custom_text: Optional[str] = None
+
 @router.post("/{track_id}/routes/{route_id}/generate-intro")
 async def generate_route_intro(
     track_id: int,
     route_id: int,
-    dry_run: bool = False,
+    body: GenerateIntroRequest = GenerateIntroRequest(),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -899,10 +903,14 @@ async def generate_route_intro(
     metadata = track.metadata_json or {}
     guide_config = metadata.get('guide_config', {})
 
-    # Generate intro text using GPT
-    client = OpenAI()
+    # Generate intro text
+    if body.custom_text:
+        intro_text = body.custom_text
+    else:
+        # Generate intro text using GPT
+        client = OpenAI()
 
-    prompt = f"""Du bist ein Wanderführer. Generiere eine kurze, freundliche Begrüßung (max 30 Sekunden Sprechzeit) für die Route "{route.name}".
+        prompt = f"""Du bist ein Wanderführer. Generiere eine kurze, freundliche Begrüßung (max 30 Sekunden Sprechzeit) für die Route "{route.name}".
 
 Track: {track.name}
 Route: {route.name}
@@ -916,15 +924,15 @@ Die Begrüßung soll:
 
 Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Text."""
 
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=200
-    )
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200
+        )
 
-    intro_text = response.choices[0].message.content
+        intro_text = response.choices[0].message.content
 
-    if dry_run:
+    if body.dry_run:
         return {
             "route_id": route_id,
             "route_name": route.name,
@@ -933,6 +941,8 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
         }
 
     # Generate audio using OpenAI TTS
+    if not body.custom_text:
+        client = OpenAI() # Ensure client exists if we skipped GPT block
     voice = guide_config.get('voice', {}).get('style', 'nova')
     if voice == 'warm_guide':
         voice = 'nova'
