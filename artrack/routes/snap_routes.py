@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
-from math import cos, radians, sqrt
+from math import cos, radians, sqrt, asin, sin
 from datetime import datetime
 
 from ..database import get_db
@@ -34,6 +34,23 @@ def _meters_per_degree(lat_deg: float) -> Tuple[float, float]:
     meters_per_deg_lat = 111320.0
     meters_per_deg_lon = 111320.0 * cos(radians(lat_deg))
     return meters_per_deg_lat, meters_per_deg_lon
+
+
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the great circle distance between two points
+    on the earth (specified in decimal degrees) in meters.
+    """
+    # convert decimal degrees to radians
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+
+    # haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a))
+    r = 6371000 # Radius of earth in meters.
+    return c * r
 
 
 def _project_to_local_xy(points: List[Tuple[float, float]], ref_lat: float) -> List[Tuple[float, float]]:
