@@ -938,9 +938,15 @@ Die Begrüßung soll:
 Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Text."""
 
             async with httpx.AsyncClient(timeout=60.0) as client:
+                # Use prompt field as required by api-ai Prompt model
+                chat_payload = {
+                    "prompt": prompt,
+                    "system": "Du bist ein erfahrener, freundlicher Wanderführer. Antworte immer auf Deutsch."
+                }
+                
                 response = await client.post(
                     f"{AI_SERVICE_URL}/ai/chatgpt?model=gpt-4",
-                    json={"text": prompt, "images": []},
+                    json=chat_payload,
                     headers=HEADERS
                 )
                 
@@ -949,12 +955,12 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
                 
                 ai_data = response.json()
                 # Handle flexible response formats from AI service
-                if 'choices' in ai_data and len(ai_data['choices']) > 0:
-                    intro_text = ai_data['choices'][0]['message']['content']
-                elif 'content' in ai_data:
-                    intro_text = ai_data['content']
+                if 'response' in ai_data:
+                    intro_text = ai_data['response']
                 elif 'message' in ai_data:
                     intro_text = ai_data['message']
+                elif 'choices' in ai_data and len(ai_data['choices']) > 0:
+                    intro_text = ai_data['choices'][0]['message']['content']
                 else:
                     intro_text = str(ai_data) # Fallback
 
@@ -977,7 +983,8 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
 
         speech_payload = {
             "id": f"route-intro-{route_id}-{int(datetime.now().timestamp())}",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now().isoformat(), # Required field
+            "collection_id": "route_intros",         # Required at root level
             "content": {
                 "text": intro_text,
                 "language": guide_config.get('language', 'de-DE'),
@@ -985,12 +992,11 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
                 "speed": speed
             },
             "config": {
-                "provider": "openai", # Or use guide_config.get('voice', {}).get('provider', 'openai')
+                "provider": "openai", 
                 "output_format": "mp3"
             },
             "save_options": {
                 "is_public": True,
-                "collection_id": "route_intros",
                 "owner_email": user_email
             }
         }
