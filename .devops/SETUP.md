@@ -1,7 +1,7 @@
 # Setup Checklist
 
 1. **Copy templates** – Use `scripts/setup-devops.sh` from the starter pack to install `.devops/` and `.github/workflows/` into your project.
-2. **Install dependencies** – Ensure the target project can run `echo 'No build needed for FastAPI'` successfully.
+2. **Install dependencies** – Ensure the target project can run `npm run build` successfully.
 3. **Configure GitHub secrets**
    - `DEPLOY_HOST`
    - `DEPLOY_USER`

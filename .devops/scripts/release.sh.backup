@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="/Volumes/DatenAP/Code/artrack-api"
+REPO_ROOT="/Volumes/DatenAP/Code/storage-api"
 DEV_BRANCH="dev"
 MAIN_BRANCH="main"
 CHECKOUT_SCRIPT="$(dirname "$0")/checkout-branch.sh"

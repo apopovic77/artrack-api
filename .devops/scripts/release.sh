@@ -2,11 +2,13 @@
 
 set -euo pipefail
 
-REPO_ROOT="/Volumes/DatenAP/Code/artrack-api"
+# Resolve repository root relative to this script so it works anywhere.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 DEV_BRANCH="dev"
 MAIN_BRANCH="main"
-CHECKOUT_SCRIPT="$(dirname "$0")/checkout-branch.sh"
-BUILD_SCRIPT="$(dirname "$0")/build-local.sh"
+CHECKOUT_SCRIPT="$SCRIPT_DIR/checkout-branch.sh"
+BUILD_SCRIPT="$SCRIPT_DIR/build-local.sh"
 
 usage() {
   cat <<'USAGE'
@@ -43,19 +45,9 @@ done
 
 cd "$REPO_ROOT"
 
-# Check for uncommitted changes and auto-commit them
 if [[ -n "$(git status --porcelain)" ]]; then
-  printf '\n==> Auto-committing changes for release\n'
-  
-  # Generate informative commit message
-  changed_files=$(git status --porcelain | wc -l | xargs)
-  timestamp=$(date '+%Y-%m-%d %H:%M')
-  commit_msg="Release preparation - ${changed_files} files updated [${timestamp}]"
-  
-  git add -A
-  git commit -m "$commit_msg"
-  
-  echo "✅ Auto-committed: $commit_msg"
+  echo "Error: working tree has uncommitted changes. Please commit or stash them first." >&2
+  exit 1
 fi
 
 printf '\n==> Syncing %s branch\n' "$DEV_BRANCH"

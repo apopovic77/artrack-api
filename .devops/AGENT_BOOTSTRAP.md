@@ -7,7 +7,7 @@
 2. **Git helper scripts** (under `.devops/scripts/` and already executable):
    - `checkout-branch.sh <dev|main>` – validate clean tree → fetch → checkout → fast-forward.
    - `push-dev.sh "commit message"` – checkout dev → fast-forward from origin → stage all → commit → push `origin dev`.
-   - `build-local.sh [--clean]` – optional clean dist, run `echo 'No build needed for FastAPI'`.
+   - `build-local.sh [--clean]` – optional clean dist, run `npm run build`.
    - `release.sh [--no-build]` – sync & push dev, optional local build, fast-forward main from dev, push main, switch back to dev (triggers GitHub Actions deploy).
    - `update-devops.sh [--starter-path <path>]` – optionally fetches `starter-devops` and re-applies the starter templates with `--update` using `.devops/starter-config.json`.
 

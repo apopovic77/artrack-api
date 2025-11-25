@@ -30,10 +30,10 @@ git fetch origin main
 git reset --hard origin/main
 
 echo -e "${YELLOW}📦 Installing dependencies...${NC}"
-pip install -r requirements.txt
+npm ci --production=false
 
 echo -e "${YELLOW}🏗️  Building application...${NC}"
-echo 'No build needed for FastAPI'
+npm run build
 
 if [ ! -d "$REPO_PATH/dist" ]; then
   echo -e "${RED}❌ Build failed: dist directory not found${NC}"

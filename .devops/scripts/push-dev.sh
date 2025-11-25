@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-REPO_ROOT="/Volumes/DatenAP/Code/artrack-api"
+# Resolve repository root relative to this script so it works on any machine.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 DEV_BRANCH="dev"
 
 usage() {
