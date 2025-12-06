@@ -945,8 +945,8 @@
                 document.getElementById('statusBadge').innerHTML = `<span class="status-badge ${statusClass}">${response.status} ${response.statusText}</span>`;
                 document.getElementById('responseTime').innerHTML = `${duration}ms`;
                 document.getElementById('responseBody').innerHTML = typeof data === 'object'
-                    ? formatJson(data)
-                    : `<pre>${escapeHtml(data)}</pre>`;
+                    ? `<pre style="margin:0; font-family:inherit; white-space:pre;">${formatJson(data)}</pre>`
+                    : `<pre style="margin:0;">${escapeHtml(data)}</pre>`;
 
                 // Add to history
                 addToHistory(method, url, response.status, duration);
