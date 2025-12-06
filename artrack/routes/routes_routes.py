@@ -1045,6 +1045,247 @@ Sprich direkt den Wanderer an. Keine Metainformationen, nur den gesprochenen Tex
         raise HTTPException(status_code=500, detail=f"Process Error: {str(e)}")
 
 
+# ============================================================================
+# PRETTY ENDPOINTS - Human-readable overview without technical details
+# ============================================================================
+
+class PrettyPOI(BaseModel):
+    id: int
+    name: Optional[str]
+    description: Optional[str]
+    type: Optional[str]
+    km: float  # Position along route in kilometers
+
+class PrettySegment(BaseModel):
+    id: int
+    name: Optional[str]
+    description: Optional[str]
+    start_km: float
+    end_km: float
+    length_km: float
+
+class PrettyRoute(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    color: Optional[str]
+    total_km: float
+    poi_count: int
+    segment_count: int
+
+class PrettyTrackOverview(BaseModel):
+    track_id: int
+    track_name: str
+    track_description: Optional[str]
+    routes: List[PrettyRoute]
+
+class PrettyRouteDetail(BaseModel):
+    route_id: int
+    route_name: str
+    route_description: Optional[str]
+    total_km: float
+    pois: List[PrettyPOI]
+    segments: List[PrettySegment]
+
+
+@router.get("/{track_id}/pretty")
+async def get_track_pretty(
+    track_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Human-readable track overview.
+
+    Returns a clean summary of all routes with their total length,
+    POI count, and segment count - without coordinates or technical IDs.
+    """
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    routes = db.query(TrackRouteModel).filter(TrackRouteModel.track_id == track_id).order_by(TrackRouteModel.id.asc()).all()
+
+    pretty_routes = []
+
+    for route in routes:
+        # Calculate total distance
+        gps_points = db.query(Waypoint).filter(
+            Waypoint.track_id == track_id,
+            Waypoint.route_id == route.id,
+            Waypoint.waypoint_type == "gps_track"
+        ).order_by(Waypoint.recorded_at.asc()).all()
+
+        total_distance = 0.0
+        for i in range(1, len(gps_points)):
+            total_distance += _haversine(
+                gps_points[i-1].latitude, gps_points[i-1].longitude,
+                gps_points[i].latitude, gps_points[i].longitude
+            )
+
+        # Count POIs (non-GPS, non-segment waypoints)
+        all_waypoints = db.query(Waypoint).filter(
+            Waypoint.track_id == track_id,
+            Waypoint.waypoint_type != "gps_track"
+        ).all()
+
+        poi_count = 0
+        segment_names = set()
+
+        for wp in all_waypoints:
+            if _waypoint_belongs_to_route(wp, route.id, track_id, db, track):
+                meta = wp.metadata_json or {}
+                if meta.get("segment"):
+                    seg_name = meta.get("segment", {}).get("name")
+                    if seg_name:
+                        segment_names.add(seg_name)
+                else:
+                    poi_count += 1
+
+        pretty_routes.append(PrettyRoute(
+            id=route.id,
+            name=route.name,
+            description=route.description,
+            color=route.color,
+            total_km=round(total_distance / 1000, 2),
+            poi_count=poi_count,
+            segment_count=len(segment_names)
+        ))
+
+    return PrettyTrackOverview(
+        track_id=track.id,
+        track_name=track.name,
+        track_description=track.description,
+        routes=pretty_routes
+    )
+
+
+@router.get("/{track_id}/routes/{route_id}/pretty")
+async def get_route_pretty(
+    track_id: int,
+    route_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Human-readable route detail.
+
+    Returns:
+    - Route info with total length in km
+    - POIs with name, description, type, and position (km)
+    - Segments with name, description, start/end km, and length
+
+    No coordinates, no technical metadata - just the essentials.
+    """
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    route = db.query(TrackRouteModel).filter(
+        TrackRouteModel.id == route_id,
+        TrackRouteModel.track_id == track_id
+    ).first()
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    # Get GPS points for distance calculations
+    gps_points = db.query(Waypoint).filter(
+        Waypoint.track_id == track_id,
+        Waypoint.route_id == route_id,
+        Waypoint.waypoint_type == "gps_track"
+    ).order_by(Waypoint.recorded_at.asc()).all()
+
+    # Build polyline for snap calculations
+    polyline = [(p.latitude, p.longitude) for p in gps_points]
+
+    # Calculate total distance
+    total_distance = 0.0
+    for i in range(1, len(gps_points)):
+        total_distance += _haversine(
+            gps_points[i-1].latitude, gps_points[i-1].longitude,
+            gps_points[i].latitude, gps_points[i].longitude
+        )
+
+    # Get all non-GPS waypoints
+    all_waypoints = db.query(Waypoint).filter(
+        Waypoint.track_id == track_id,
+        Waypoint.waypoint_type != "gps_track"
+    ).all()
+
+    pretty_pois = []
+    segments_by_name = {}
+
+    for wp in all_waypoints:
+        if not _waypoint_belongs_to_route(wp, route_id, track_id, db, track):
+            continue
+
+        meta = wp.metadata_json or {}
+
+        # Calculate position along route
+        along_meters = 0.0
+        if len(polyline) >= 2:
+            _, along_meters, _, _ = _closest_point_on_polyline(polyline, wp.latitude, wp.longitude)
+
+        if meta.get("segment"):
+            # Segment marker
+            seg_info = meta.get("segment", {})
+            seg_name = seg_info.get("name", "Unnamed")
+            role = seg_info.get("role")
+
+            if seg_name not in segments_by_name:
+                segments_by_name[seg_name] = {"id": wp.id, "name": seg_name, "description": seg_info.get("description")}
+
+            if role == "start":
+                segments_by_name[seg_name]["start_km"] = along_meters / 1000
+                segments_by_name[seg_name]["start_id"] = wp.id
+            elif role == "end":
+                segments_by_name[seg_name]["end_km"] = along_meters / 1000
+                segments_by_name[seg_name]["end_id"] = wp.id
+        else:
+            # Regular POI
+            poi_name = meta.get("title") or wp.user_description or f"POI {wp.id}"
+            pretty_pois.append(PrettyPOI(
+                id=wp.id,
+                name=poi_name[:50] if poi_name else None,
+                description=wp.user_description[:200] if wp.user_description else None,
+                type=wp.waypoint_type,
+                km=round(along_meters / 1000, 2)
+            ))
+
+    # Sort POIs by km
+    pretty_pois.sort(key=lambda x: x.km)
+
+    # Build segments list
+    pretty_segments = []
+    for seg_name, seg_data in segments_by_name.items():
+        start_km = seg_data.get("start_km", 0)
+        end_km = seg_data.get("end_km", 0)
+        pretty_segments.append(PrettySegment(
+            id=seg_data.get("start_id", 0),
+            name=seg_name,
+            description=seg_data.get("description"),
+            start_km=round(start_km, 2),
+            end_km=round(end_km, 2),
+            length_km=round(abs(end_km - start_km), 2)
+        ))
+
+    # Sort segments by start_km
+    pretty_segments.sort(key=lambda x: x.start_km)
+
+    return PrettyRouteDetail(
+        route_id=route.id,
+        route_name=route.name,
+        route_description=route.description,
+        total_km=round(total_distance / 1000, 2),
+        pois=pretty_pois,
+        segments=pretty_segments
+    )
+
+
 class NarrativeCaptureRequest(BaseModel):
     element_id: str  # Expects "wp_123" or just "123"
     text: str
