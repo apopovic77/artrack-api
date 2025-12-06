@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artrack API Debug Console</title>
+    <style>
+        :root {
+            --bg-dark: #1a1a2e;
+            --bg-card: #16213e;
+            --bg-input: #0f3460;
+            --accent: #e94560;
+            --accent-hover: #ff6b6b;
+            --text: #eee;
+            --text-muted: #888;
+            --success: #4ade80;
+            --error: #f87171;
+            --warning: #fbbf24;
+            --border: #333;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h1 {
+            color: var(--accent);
+            font-size: 1.5rem;
+        }
+
+        .version {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .config-section {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
+        }
+
+        .config-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input, select {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.9rem;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+        }
+
+        .endpoints-panel {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 15px;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+
+        .endpoint-category {
+            margin-bottom: 20px;
+        }
+
+        .category-title {
+            font-size: 0.7rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .endpoint-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            padding: 8px 10px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-align: left;
+            margin-bottom: 4px;
+            transition: all 0.15s;
+        }
+
+        .endpoint-btn:hover {
+            background: var(--bg-input);
+            border-color: var(--border);
+        }
+
+        .endpoint-btn.active {
+            background: var(--bg-input);
+            border-color: var(--accent);
+        }
+
+        .method-badge {
+            font-size: 0.65rem;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 3px;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .method-GET { background: #22c55e; color: #000; }
+        .method-POST { background: #3b82f6; color: #fff; }
+        .method-PUT { background: #f59e0b; color: #000; }
+        .method-DELETE { background: #ef4444; color: #fff; }
+        .method-PATCH { background: #8b5cf6; color: #fff; }
+
+        .result-panel {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 200px);
+        }
+
+        .request-section {
+            margin-bottom: 15px;
+        }
+
+        .request-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .request-url {
+            flex: 1;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.85rem;
+        }
+
+        .send-btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .send-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .body-editor {
+            width: 100%;
+            min-height: 120px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.8rem;
+            resize: vertical;
+        }
+
+        .response-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .response-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .response-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.75rem;
+        }
+
+        .status-badge {
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .status-2xx { background: var(--success); color: #000; }
+        .status-4xx { background: var(--warning); color: #000; }
+        .status-5xx { background: var(--error); color: #fff; }
+
+        .response-time {
+            color: var(--text-muted);
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 5px 10px;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .copy-btn:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
+        .response-body {
+            flex: 1;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 15px;
+            overflow: auto;
+            font-size: 0.8rem;
+            line-height: 1.5;
+        }
+
+        .json-key { color: #f472b6; }
+        .json-string { color: #4ade80; }
+        .json-number { color: #60a5fa; }
+        .json-boolean { color: #fbbf24; }
+        .json-null { color: #9ca3af; }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100px;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            opacity: 0.3;
+        }
+
+        .params-section {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg-dark);
+            border-radius: 4px;
+        }
+
+        .param-row {
+            display: grid;
+            grid-template-columns: 150px 1fr auto;
+            gap: 10px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+
+        .param-row input {
+            padding: 6px 10px;
+            font-size: 0.8rem;
+        }
+
+        .param-remove {
+            background: transparent;
+            border: none;
+            color: var(--error);
+            cursor: pointer;
+            padding: 5px;
+            font-size: 1rem;
+        }
+
+        .add-param-btn {
+            background: transparent;
+            border: 1px dashed var(--border);
+            border-radius: 4px;
+            padding: 6px 12px;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 5px;
+        }
+
+        .add-param-btn:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 5px 12px;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        .tab-btn.active {
+            background: var(--bg-input);
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
+        .history-panel {
+            margin-top: 20px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .history-title {
+            font-size: 0.7rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            margin-bottom: 4px;
+        }
+
+        .history-item:hover {
+            background: var(--bg-input);
+        }
+
+        .history-item .method-badge {
+            font-size: 0.6rem;
+            padding: 1px 4px;
+        }
+
+        .history-url {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-muted);
+        }
+
+        .history-status {
+            font-size: 0.7rem;
+        }
+
+        .clear-history {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            cursor: pointer;
+            float: right;
+        }
+
+        .clear-history:hover {
+            color: var(--error);
+        }
+
+        @media (max-width: 1000px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            .endpoints-panel {
+                max-height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Artrack API Debug Console</h1>
+            <span class="version">v1.0.0</span>
+        </header>
+
+        <div class="config-section">
+            <div class="config-group">
+                <label>Base URL</label>
+                <input type="text" id="baseUrl" value="" placeholder="http://localhost:8001">
+            </div>
+            <div class="config-group">
+                <label>API Key (X-API-KEY)</label>
+                <input type="text" id="apiKey" placeholder="Enter your API key">
+            </div>
+            <div class="config-group">
+                <button class="send-btn" onclick="saveConfig()">Save Config</button>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <div class="endpoints-panel">
+                <!-- Health -->
+                <div class="endpoint-category">
+                    <div class="category-title">Health & Info</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/', null, 'Root Info')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/health', null, 'Health Check')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/health</span>
+                    </button>
+                </div>
+
+                <!-- Auth -->
+                <div class="endpoint-category">
+                    <div class="category-title">Authentication</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/auth/register', {email:'test@example.com',password:'test123',display_name:'Test User',device_id:'debug-console'}, 'Register User')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/auth/register</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/auth/login', {email:'test@example.com',password:'test123',device_id:'debug-console'}, 'Login')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/auth/login</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/auth/me', null, 'Get Current User')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/auth/me</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/auth/refresh', null, 'Refresh Token')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/auth/refresh</span>
+                    </button>
+                </div>
+
+                <!-- Tracks -->
+                <div class="endpoint-category">
+                    <div class="category-title">Tracks</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/', null, 'List Tracks')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/', {name:'Test Track',description:'Debug console test',visibility:'private',track_type:'hiking',tags:['test'],client_track_id:'debug-'+Date.now()}, 'Create Track')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/tracks/</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}', null, 'Get Track')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('PUT', '/tracks/{id}', {name:'Updated Track',description:'Updated desc',visibility:'private',track_type:'hiking',tags:['updated']}, 'Update Track')">
+                        <span class="method-badge method-PUT">PUT</span>
+                        <span>/tracks/{id}</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('DELETE', '/tracks/{id}', null, 'Delete Track')">
+                        <span class="method-badge method-DELETE">DELETE</span>
+                        <span>/tracks/{id}</span>
+                    </button>
+                </div>
+
+                <!-- GPS Points -->
+                <div class="endpoint-category">
+                    <div class="category-title">GPS Points</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/gps-points', null, 'List GPS Points')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/gps-points</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/gps-points', {trackId:1,latitude:48.2082,longitude:16.3738,altitude:180,accuracy:5,timestamp:new Date().toISOString(),speed:1.2,course:45,isFromKalmanFilter:false}, 'Create GPS Point')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/tracks/{id}/gps-points</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/gps-points/batch', {trackId:1,batchId:'batch-'+Date.now(),points:[{trackId:1,latitude:48.2082,longitude:16.3738,altitude:180,accuracy:5,timestamp:new Date().toISOString(),isFromKalmanFilter:false}]}, 'Batch GPS Points')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/tracks/{id}/gps-points/batch</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/gps-stats', null, 'GPS Statistics')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/gps-stats</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('DELETE', '/tracks/{id}/gps-points', null, 'Clear GPS Points')">
+                        <span class="method-badge method-DELETE">DELETE</span>
+                        <span>/tracks/{id}/gps-points</span>
+                    </button>
+                </div>
+
+                <!-- Waypoints -->
+                <div class="endpoint-category">
+                    <div class="category-title">Waypoints</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/waypoints/', null, 'List Waypoints')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/waypoints/</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/{track_id}/waypoints', {waypoints:[{client_waypoint_id:'wp-'+Date.now(),latitude:48.2082,longitude:16.3738,altitude:180,accuracy:5,recorded_at:new Date().toISOString(),user_description:'Test waypoint',media_count:0,waypoint_type:'photo'}]}, 'Create Waypoints')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/{track_id}/waypoints</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/waypoints/{id}', null, 'Get Waypoint')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/waypoints/{id}</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/waypoints/{id}/status', null, 'Waypoint Status')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/waypoints/{id}/status</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('PUT', '/waypoints/{id}', {title:'Updated Title',description:'Updated desc',tags:['updated']}, 'Update Waypoint')">
+                        <span class="method-badge method-PUT">PUT</span>
+                        <span>/waypoints/{id}</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('DELETE', '/waypoints/{id}', null, 'Delete Waypoint')">
+                        <span class="method-badge method-DELETE">DELETE</span>
+                        <span>/waypoints/{id}</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/waypoints/detail', null, 'Waypoints Detail')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/waypoints/detail</span>
+                    </button>
+                </div>
+
+                <!-- Routes -->
+                <div class="endpoint-category">
+                    <div class="category-title">Routes</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/routes', null, 'List Routes')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/routes</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes', {name:'New Route',coordinates:[[16.3738,48.2082],[16.3750,48.2090]]}, 'Create Route')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/tracks/{id}/routes</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes/fuse', {routeA:1,routeB:2,name:'Fused Route'}, 'Fuse Routes')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/tracks/{id}/routes/fuse</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes/split', {routeId:1,index:50}, 'Split Route')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/tracks/{id}/routes/split</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes/copy', {routeId:1,newName:'Route Copy'}, 'Copy Route')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/tracks/{id}/routes/copy</span>
+                    </button>
+                </div>
+
+                <!-- Collaboration -->
+                <div class="endpoint-category">
+                    <div class="category-title">Collaboration</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/collaboration/{id}/collaborate', null, 'Enable Collaboration')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/collaboration/{id}/collaborate</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/collaboration/{id}/collaborators', null, 'List Collaborators')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/collaboration/{id}/collaborators</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/collaboration/{id}/invite', {email:'friend@example.com',role:'contributor',can_add_waypoints:true,can_edit_waypoints:false,can_delete_waypoints:false,can_invite_others:false,expires_in_hours:168}, 'Invite User')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/collaboration/{id}/invite</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/collaboration/{id}/permissions', null, 'Get Permissions')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/collaboration/{id}/permissions</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/collaboration/{id}/activity', null, 'Activity Log')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/collaboration/{id}/activity</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/collaboration/{id}/stats', null, 'Collaboration Stats')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/collaboration/{id}/stats</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/collaboration/{id}/share-info', null, 'Share Info')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/collaboration/{id}/share-info</span>
+                    </button>
+                </div>
+
+                <!-- Proximity Validation -->
+                <div class="endpoint-category">
+                    <div class="category-title">Proximity Validation</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/collaboration/{id}/validate-waypoint?waypoint_lat=48.2082&waypoint_lon=16.3738', null, 'Validate Waypoint')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/collaboration/{id}/validate-waypoint</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/collaboration/{id}/geometry-info', null, 'Geometry Info')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/collaboration/{id}/geometry-info</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/collaboration/{id}/proximity-config', null, 'Proximity Config')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/collaboration/{id}/proximity-config</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/collaboration/{id}/debug-proximity?waypoint_lat=48.2082&waypoint_lon=16.3738', null, 'Debug Proximity')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/collaboration/{id}/debug-proximity</span>
+                    </button>
+                </div>
+
+                <!-- Audio Guides -->
+                <div class="endpoint-category">
+                    <div class="category-title">Audio Guides</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/guides/{id}/guide', {language:'de-AT',persona:'Erfahrener Wanderführer',defaultRadius:15}, 'Build Guide')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/guides/{id}/guide</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('PUT', '/guides/{id}/guide-config', {language:'de-AT',persona:'Freundlicher Guide',defaultRadius:20}, 'Update Guide Config')">
+                        <span class="method-badge method-PUT">PUT</span>
+                        <span>/guides/{id}/guide-config</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/guides/{id}/ios-guide-export', {language:'de-AT'}, 'iOS Guide Export')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/guides/{id}/ios-guide-export</span>
+                    </button>
+                </div>
+
+                <!-- Segments -->
+                <div class="endpoint-category">
+                    <div class="category-title">Segments (Legacy)</div>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/segments/{id}/segments', null, 'List Segments')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/segments/{id}/segments</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/segments/{id}/segments/start', {name:'New Segment'}, 'Start Segment')">
+                        <span class="method-badge method-POST">POST</span>
+                        <span>/segments/{id}/segments/start</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/segments/{id}/segments/{seg_id}/geometry', null, 'Segment Geometry')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/segments/{id}/segments/{seg_id}/geometry</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="result-panel">
+                <div class="request-section">
+                    <div class="request-header">
+                        <select id="methodSelect" style="width: 100px;">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="PATCH">PATCH</option>
+                        </select>
+                        <input type="text" id="urlInput" class="request-url" placeholder="/endpoint">
+                        <button class="send-btn" id="sendBtn" onclick="sendRequest()">Send</button>
+                    </div>
+
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="showTab('body')">Body</button>
+                        <button class="tab-btn" onclick="showTab('params')">Query Params</button>
+                        <button class="tab-btn" onclick="showTab('headers')">Headers</button>
+                    </div>
+
+                    <div id="bodyTab">
+                        <textarea id="bodyEditor" class="body-editor" placeholder='{"key": "value"}'></textarea>
+                    </div>
+
+                    <div id="paramsTab" style="display:none;">
+                        <div class="params-section">
+                            <div id="paramsContainer"></div>
+                            <button class="add-param-btn" onclick="addParam()">+ Add Parameter</button>
+                        </div>
+                    </div>
+
+                    <div id="headersTab" style="display:none;">
+                        <div class="params-section">
+                            <div id="headersContainer">
+                                <div class="param-row">
+                                    <input type="text" value="Content-Type" disabled>
+                                    <input type="text" value="application/json" disabled>
+                                    <span style="width:30px"></span>
+                                </div>
+                                <div class="param-row">
+                                    <input type="text" value="X-API-KEY" disabled>
+                                    <input type="text" value="(from config)" disabled>
+                                    <span style="width:30px"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="response-section">
+                    <div class="response-header">
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">Response</span>
+                        <div class="response-meta">
+                            <span id="statusBadge"></span>
+                            <span id="responseTime" class="response-time"></span>
+                            <button class="copy-btn" onclick="copyResponse()">Copy</button>
+                        </div>
+                    </div>
+                    <div id="responseBody" class="response-body">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">{ }</div>
+                            <span>Select an endpoint and click Send</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="history-panel">
+            <div class="history-title">
+                Recent Requests
+                <button class="clear-history" onclick="clearHistory()">Clear</button>
+            </div>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let history = JSON.parse(localStorage.getItem('artrack_debug_history') || '[]');
+        let currentResponse = null;
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            // Auto-detect base URL
+            const currentHost = window.location.origin;
+            document.getElementById('baseUrl').value = currentHost;
+
+            // Load saved config
+            const savedApiKey = localStorage.getItem('artrack_debug_apikey');
+            const savedBaseUrl = localStorage.getItem('artrack_debug_baseurl');
+            if (savedApiKey) document.getElementById('apiKey').value = savedApiKey;
+            if (savedBaseUrl) document.getElementById('baseUrl').value = savedBaseUrl;
+
+            renderHistory();
+        });
+
+        function saveConfig() {
+            localStorage.setItem('artrack_debug_apikey', document.getElementById('apiKey').value);
+            localStorage.setItem('artrack_debug_baseurl', document.getElementById('baseUrl').value);
+            alert('Config saved!');
+        }
+
+        function selectEndpoint(method, path, body, name) {
+            document.getElementById('methodSelect').value = method;
+            document.getElementById('urlInput').value = path;
+            document.getElementById('bodyEditor').value = body ? JSON.stringify(body, null, 2) : '';
+
+            // Update active button styling
+            document.querySelectorAll('.endpoint-btn').forEach(btn => btn.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+        }
+
+        function showTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+
+            document.getElementById('bodyTab').style.display = tab === 'body' ? 'block' : 'none';
+            document.getElementById('paramsTab').style.display = tab === 'params' ? 'block' : 'none';
+            document.getElementById('headersTab').style.display = tab === 'headers' ? 'block' : 'none';
+        }
+
+        function addParam() {
+            const container = document.getElementById('paramsContainer');
+            const row = document.createElement('div');
+            row.className = 'param-row';
+            row.innerHTML = `
+                <input type="text" placeholder="key" class="param-key">
+                <input type="text" placeholder="value" class="param-value">
+                <button class="param-remove" onclick="this.parentElement.remove()">×</button>
+            `;
+            container.appendChild(row);
+        }
+
+        async function sendRequest() {
+            const baseUrl = document.getElementById('baseUrl').value.replace(/\/$/, '');
+            const apiKey = document.getElementById('apiKey').value;
+            const method = document.getElementById('methodSelect').value;
+            let url = document.getElementById('urlInput').value;
+            const bodyText = document.getElementById('bodyEditor').value;
+
+            // Prompt for path params
+            const pathParams = url.match(/\{[^}]+\}/g);
+            if (pathParams) {
+                for (const param of pathParams) {
+                    const paramName = param.slice(1, -1);
+                    const value = prompt(`Enter value for ${paramName}:`, '1');
+                    if (value === null) return;
+                    url = url.replace(param, value);
+                }
+            }
+
+            // Build query params
+            const queryParams = [];
+            document.querySelectorAll('#paramsContainer .param-row').forEach(row => {
+                const key = row.querySelector('.param-key')?.value;
+                const value = row.querySelector('.param-value')?.value;
+                if (key && value) queryParams.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+            });
+
+            // Append existing query params from URL
+            if (url.includes('?')) {
+                const [path, existingQuery] = url.split('?');
+                url = path;
+                queryParams.unshift(existingQuery);
+            }
+
+            if (queryParams.length > 0) {
+                url += '?' + queryParams.join('&');
+            }
+
+            const fullUrl = baseUrl + url;
+
+            // Show loading
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('responseBody').innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+            document.getElementById('statusBadge').innerHTML = '';
+            document.getElementById('responseTime').innerHTML = '';
+
+            const startTime = performance.now();
+
+            try {
+                const options = {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                };
+
+                if (apiKey) {
+                    options.headers['X-API-KEY'] = apiKey;
+                }
+
+                if (bodyText && ['POST', 'PUT', 'PATCH'].includes(method)) {
+                    options.body = bodyText;
+                }
+
+                const response = await fetch(fullUrl, options);
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+
+                let data;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+
+                currentResponse = data;
+
+                // Update UI
+                const statusClass = response.status < 300 ? 'status-2xx' : response.status < 500 ? 'status-4xx' : 'status-5xx';
+                document.getElementById('statusBadge').innerHTML = `<span class="status-badge ${statusClass}">${response.status} ${response.statusText}</span>`;
+                document.getElementById('responseTime').innerHTML = `${duration}ms`;
+                document.getElementById('responseBody').innerHTML = typeof data === 'object'
+                    ? formatJson(data)
+                    : `<pre>${escapeHtml(data)}</pre>`;
+
+                // Add to history
+                addToHistory(method, url, response.status, duration);
+
+            } catch (error) {
+                document.getElementById('statusBadge').innerHTML = '<span class="status-badge status-5xx">Error</span>';
+                document.getElementById('responseBody').innerHTML = `<pre style="color: var(--error);">${escapeHtml(error.message)}</pre>`;
+                currentResponse = { error: error.message };
+            }
+
+            document.getElementById('sendBtn').disabled = false;
+        }
+
+        function formatJson(obj, indent = 0) {
+            const spaces = '  '.repeat(indent);
+
+            if (obj === null) return '<span class="json-null">null</span>';
+            if (typeof obj === 'boolean') return `<span class="json-boolean">${obj}</span>`;
+            if (typeof obj === 'number') return `<span class="json-number">${obj}</span>`;
+            if (typeof obj === 'string') return `<span class="json-string">"${escapeHtml(obj)}"</span>`;
+
+            if (Array.isArray(obj)) {
+                if (obj.length === 0) return '[]';
+                const items = obj.map(item => spaces + '  ' + formatJson(item, indent + 1)).join(',\n');
+                return `[\n${items}\n${spaces}]`;
+            }
+
+            if (typeof obj === 'object') {
+                const keys = Object.keys(obj);
+                if (keys.length === 0) return '{}';
+                const items = keys.map(key =>
+                    `${spaces}  <span class="json-key">"${escapeHtml(key)}"</span>: ${formatJson(obj[key], indent + 1)}`
+                ).join(',\n');
+                return `{\n${items}\n${spaces}}`;
+            }
+
+            return String(obj);
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function copyResponse() {
+            if (currentResponse) {
+                navigator.clipboard.writeText(JSON.stringify(currentResponse, null, 2));
+                event.target.textContent = 'Copied!';
+                setTimeout(() => event.target.textContent = 'Copy', 1500);
+            }
+        }
+
+        function addToHistory(method, url, status, duration) {
+            history.unshift({ method, url, status, duration, timestamp: Date.now() });
+            history = history.slice(0, 20);
+            localStorage.setItem('artrack_debug_history', JSON.stringify(history));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('historyList');
+            if (history.length === 0) {
+                container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.75rem;">No requests yet</div>';
+                return;
+            }
+
+            container.innerHTML = history.map((item, i) => `
+                <div class="history-item" onclick="loadFromHistory(${i})">
+                    <span class="method-badge method-${item.method}">${item.method}</span>
+                    <span class="history-url">${item.url}</span>
+                    <span class="history-status ${item.status < 300 ? 'status-2xx' : item.status < 500 ? 'status-4xx' : 'status-5xx'}" style="padding: 1px 4px; border-radius: 3px; font-size: 0.65rem;">${item.status}</span>
+                </div>
+            `).join('');
+        }
+
+        function loadFromHistory(index) {
+            const item = history[index];
+            document.getElementById('methodSelect').value = item.method;
+            document.getElementById('urlInput').value = item.url;
+        }
+
+        function clearHistory() {
+            history = [];
+            localStorage.removeItem('artrack_debug_history');
+            renderHistory();
+        }
+    </script>
+</body>
+</html>

@@ -11,6 +11,9 @@ Handles:
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pathlib import Path
 from artrack.database import engine, Base
 
 # Import all models BEFORE creating tables to ensure relationships work
@@ -71,6 +74,19 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy", "service": "artrack-api"}
+
+# Static files & Debug Console
+STATIC_DIR = Path(__file__).parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+@app.get("/debug")
+def debug_console():
+    """Serve the API Debug Console"""
+    debug_file = STATIC_DIR / "debug.html"
+    if debug_file.exists():
+        return FileResponse(debug_file)
+    return {"error": "debug.html not found"}
 
 if __name__ == "__main__":
     import uvicorn
