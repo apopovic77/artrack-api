@@ -622,21 +622,37 @@
                         <span class="method-badge method-GET">GET</span>
                         <span>/tracks/{id}/routes</span>
                     </button>
-                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes', {name:'New Route',coordinates:[[16.3738,48.2082],[16.3750,48.2090]]}, 'Create Route')">
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/routes-ids', null, 'Route IDs Only')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/routes-ids</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/pretty', null, 'Track Pretty Overview')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/pretty</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/routes/{route_id}/pretty', null, 'Route Pretty Detail')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/routes/{route_id}/pretty</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/routes/{route_id}/overview', null, 'Route Overview')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/routes/{route_id}/overview</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('GET', '/tracks/{id}/routes/{route_id}/detail', null, 'Route Full Detail')">
+                        <span class="method-badge method-GET">GET</span>
+                        <span>/tracks/{id}/routes/{route_id}/detail</span>
+                    </button>
+                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes', {name:'New Route',description:'Route description',color:'#FF5733'}, 'Create Route')">
                         <span class="method-badge method-POST">POST</span>
                         <span>/tracks/{id}/routes</span>
                     </button>
-                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes/fuse', {routeA:1,routeB:2,name:'Fused Route'}, 'Fuse Routes')">
-                        <span class="method-badge method-POST">POST</span>
-                        <span>/tracks/{id}/routes/fuse</span>
+                    <button class="endpoint-btn" onclick="selectEndpoint('PATCH', '/tracks/{id}/routes/{route_id}', {name:'Updated Route',color:'#33FF57'}, 'Update Route')">
+                        <span class="method-badge method-PATCH">PATCH</span>
+                        <span>/tracks/{id}/routes/{route_id}</span>
                     </button>
-                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes/split', {routeId:1,index:50}, 'Split Route')">
-                        <span class="method-badge method-POST">POST</span>
-                        <span>/tracks/{id}/routes/split</span>
-                    </button>
-                    <button class="endpoint-btn" onclick="selectEndpoint('POST', '/tracks/{id}/routes/copy', {routeId:1,newName:'Route Copy'}, 'Copy Route')">
-                        <span class="method-badge method-POST">POST</span>
-                        <span>/tracks/{id}/routes/copy</span>
+                    <button class="endpoint-btn" onclick="selectEndpoint('DELETE', '/tracks/{id}/routes/{route_id}', null, 'Delete Route')">
+                        <span class="method-badge method-DELETE">DELETE</span>
+                        <span>/tracks/{id}/routes/{route_id}</span>
                     </button>
                 </div>
 
