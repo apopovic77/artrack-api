@@ -1088,6 +1088,31 @@ class PrettyRouteDetail(BaseModel):
     segments: List[PrettySegment]
 
 
+@router.get("/{track_id}/routes-ids")
+async def get_route_ids(
+    track_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Get list of route IDs for a track.
+
+    Simple endpoint that returns just the route IDs - useful for iteration.
+    """
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    routes = db.query(TrackRouteModel).filter(TrackRouteModel.track_id == track_id).order_by(TrackRouteModel.id.asc()).all()
+
+    return {
+        "track_id": track_id,
+        "route_ids": [r.id for r in routes]
+    }
+
+
 @router.get("/{track_id}/pretty")
 async def get_track_pretty(
     track_id: int,
