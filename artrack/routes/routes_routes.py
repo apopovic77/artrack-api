@@ -1088,6 +1088,216 @@ class PrettyRouteDetail(BaseModel):
     segments: List[PrettySegment]
 
 
+@router.get("/{track_id}/pois-pretty")
+async def get_all_pois_pretty(
+    track_id: int,
+    route_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Human-readable list of all POIs for a track.
+
+    Optional filter by route_id.
+    Returns: id, name, description, type, km position, route assignment.
+    """
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get all routes for distance calculations
+    routes = db.query(TrackRouteModel).filter(TrackRouteModel.track_id == track_id).all()
+
+    # Build polylines per route
+    route_polylines = {}
+    route_names = {}
+    for route in routes:
+        gps_points = db.query(Waypoint).filter(
+            Waypoint.track_id == track_id,
+            Waypoint.route_id == route.id,
+            Waypoint.waypoint_type == "gps_track"
+        ).order_by(Waypoint.recorded_at.asc()).all()
+        route_polylines[route.id] = [(p.latitude, p.longitude) for p in gps_points]
+        route_names[route.id] = route.name
+
+    # Get all non-GPS, non-segment waypoints
+    all_waypoints = db.query(Waypoint).filter(
+        Waypoint.track_id == track_id,
+        Waypoint.waypoint_type != "gps_track"
+    ).all()
+
+    pois = []
+    for wp in all_waypoints:
+        meta = wp.metadata_json or {}
+
+        # Skip segment markers
+        if meta.get("segment"):
+            continue
+
+        # Find which route this POI belongs to
+        assigned_route_id = None
+        assigned_route_name = None
+        km_position = 0.0
+
+        for r_id, polyline in route_polylines.items():
+            if len(polyline) >= 2 and _waypoint_belongs_to_route(wp, r_id, track_id, db, track):
+                assigned_route_id = r_id
+                assigned_route_name = route_names.get(r_id)
+                _, along_meters, _, _ = _closest_point_on_polyline(polyline, wp.latitude, wp.longitude)
+                km_position = along_meters / 1000
+                break
+
+        # Filter by route if specified
+        if route_id is not None and assigned_route_id != route_id:
+            continue
+
+        poi_name = meta.get("title") or wp.user_description or f"POI {wp.id}"
+        pois.append({
+            "id": wp.id,
+            "name": poi_name[:100] if poi_name else None,
+            "description": wp.user_description[:300] if wp.user_description else None,
+            "type": wp.waypoint_type,
+            "km": round(km_position, 2),
+            "route_id": assigned_route_id,
+            "route_name": assigned_route_name
+        })
+
+    # Sort by route, then by km
+    pois.sort(key=lambda x: (x["route_id"] or 0, x["km"]))
+
+    return {
+        "track_id": track_id,
+        "track_name": track.name,
+        "total_pois": len(pois),
+        "pois": pois
+    }
+
+
+@router.get("/{track_id}/segments-pretty")
+async def get_all_segments_pretty(
+    track_id: int,
+    route_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Human-readable list of all segments for a track.
+
+    Optional filter by route_id.
+    Returns: id, name, description, start_km, end_km, length_km, route assignment.
+    """
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get all routes for distance calculations
+    routes = db.query(TrackRouteModel).filter(TrackRouteModel.track_id == track_id).all()
+
+    # Build polylines per route
+    route_polylines = {}
+    route_names = {}
+    for route in routes:
+        gps_points = db.query(Waypoint).filter(
+            Waypoint.track_id == track_id,
+            Waypoint.route_id == route.id,
+            Waypoint.waypoint_type == "gps_track"
+        ).order_by(Waypoint.recorded_at.asc()).all()
+        route_polylines[route.id] = [(p.latitude, p.longitude) for p in gps_points]
+        route_names[route.id] = route.name
+
+    # Get all segment marker waypoints
+    all_waypoints = db.query(Waypoint).filter(
+        Waypoint.track_id == track_id,
+        Waypoint.waypoint_type != "gps_track"
+    ).all()
+
+    # Group segment markers by name and route
+    segments_data = {}  # key: (route_id, segment_name)
+
+    for wp in all_waypoints:
+        meta = wp.metadata_json or {}
+        seg_info = meta.get("segment")
+
+        if not seg_info:
+            continue
+
+        seg_name = seg_info.get("name", "Unnamed")
+        role = seg_info.get("role")
+
+        if not role:
+            continue
+
+        # Find which route this segment belongs to
+        assigned_route_id = None
+        for r_id, polyline in route_polylines.items():
+            if len(polyline) >= 2 and _waypoint_belongs_to_route(wp, r_id, track_id, db, track):
+                assigned_route_id = r_id
+                break
+
+        # Filter by route if specified
+        if route_id is not None and assigned_route_id != route_id:
+            continue
+
+        key = (assigned_route_id, seg_name)
+        if key not in segments_data:
+            segments_data[key] = {
+                "route_id": assigned_route_id,
+                "route_name": route_names.get(assigned_route_id),
+                "name": seg_name,
+                "description": seg_info.get("description"),
+                "start_id": None,
+                "end_id": None,
+                "start_km": None,
+                "end_km": None
+            }
+
+        # Calculate km position
+        km_position = 0.0
+        if assigned_route_id and assigned_route_id in route_polylines:
+            polyline = route_polylines[assigned_route_id]
+            if len(polyline) >= 2:
+                _, along_meters, _, _ = _closest_point_on_polyline(polyline, wp.latitude, wp.longitude)
+                km_position = along_meters / 1000
+
+        if role == "start":
+            segments_data[key]["start_id"] = wp.id
+            segments_data[key]["start_km"] = round(km_position, 2)
+        elif role == "end":
+            segments_data[key]["end_id"] = wp.id
+            segments_data[key]["end_km"] = round(km_position, 2)
+
+    # Build final segments list
+    segments = []
+    for key, data in segments_data.items():
+        start_km = data["start_km"] or 0
+        end_km = data["end_km"] or 0
+        segments.append({
+            "id": data["start_id"] or data["end_id"],
+            "name": data["name"],
+            "description": data["description"],
+            "start_km": start_km,
+            "end_km": end_km,
+            "length_km": round(abs(end_km - start_km), 2),
+            "route_id": data["route_id"],
+            "route_name": data["route_name"],
+            "complete": data["start_id"] is not None and data["end_id"] is not None
+        })
+
+    # Sort by route, then by start_km
+    segments.sort(key=lambda x: (x["route_id"] or 0, x["start_km"]))
+
+    return {
+        "track_id": track_id,
+        "track_name": track.name,
+        "total_segments": len(segments),
+        "segments": segments
+    }
+
+
 @router.get("/{track_id}/routes-ids")
 async def get_route_ids(
     track_id: int,
