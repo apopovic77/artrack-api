@@ -238,6 +238,7 @@ async def list_waypoints_detail(
             waypoint_type=wp.waypoint_type,
             metadata_json=wp.metadata_json,
             segment_id=wp.segment_id,
+            priority=getattr(wp, 'priority', None),
             media=[MediaFileResponse(
                 media_id=m["media_id"],
                 type=m["type"],
@@ -657,6 +658,7 @@ async def list_waypoints(
             metadata_json=waypoint.metadata_json,
             waypoint_type=waypoint.waypoint_type,
             segment_id=getattr(waypoint, 'segment_id', None),
+            priority=getattr(waypoint, 'priority', None),
         )
         waypoint_responses.append(waypoint_response)
 
@@ -666,6 +668,7 @@ class WaypointUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     tags: Optional[List[str]] = None
+    priority: Optional[float] = None  # -1.0 to 1.0, higher = more important
 
 # --- Chunked Uploads (optional) ---
 
@@ -916,6 +919,11 @@ async def update_waypoint(
         meta["tags"] = update.tags
     waypoint.metadata_json = meta
     flag_modified(waypoint, "metadata_json")  # Explicitly mark JSON field as modified for SQLAlchemy
+
+    # Priority (-1.0 to 1.0)
+    if update.priority is not None:
+        waypoint.priority = max(-1.0, min(1.0, update.priority))  # Clamp to valid range
+
     waypoint.updated_at = datetime.utcnow()
     db.commit()
 

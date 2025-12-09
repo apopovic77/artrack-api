@@ -139,6 +139,8 @@ class Waypoint(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     metadata_json = Column(JSON, default=dict)
+    # Priority for display ordering (-1.0 to 1.0, higher = more important)
+    priority = Column(Float, default=0.0, nullable=True)
     # Optional segment association (track segment polyline grouping)
     segment_id = Column(Integer, ForeignKey("track_segments.id"), nullable=True, index=True)
     # Optional route association for polyline grouping without segments
@@ -482,6 +484,7 @@ class WaypointListItem(WaypointStatusResponse):
     segment_id: Optional[int] = None
     route_id: Optional[int] = None
     metadata_json: Optional[Dict[str, Any]] = None
+    priority: Optional[float] = None  # -1.0 to 1.0
 
 class QuotaInfo(BaseModel):
     storage_bytes: int
@@ -513,6 +516,7 @@ class WaypointDetailResponse(BaseModel):
     metadata_json: Optional[Dict[str, Any]] = None
     segment_id: Optional[int] = None
     route_id: Optional[int] = None
+    priority: Optional[float] = None  # -1.0 to 1.0
     media: List[MediaFileResponse] = []
     storage_object_ids: Optional[List[int]] = None
 
