@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import JSONResponse
 import logging
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import or_, select
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -908,12 +909,13 @@ async def update_waypoint(
         waypoint.user_description = update.description
 
     # Store title/tags in metadata_json for flexibility
-    meta = waypoint.metadata_json or {}
+    meta = dict(waypoint.metadata_json or {})  # Create new dict to ensure mutation detection
     if update.title is not None:
         meta["title"] = update.title
     if update.tags is not None:
         meta["tags"] = update.tags
     waypoint.metadata_json = meta
+    flag_modified(waypoint, "metadata_json")  # Explicitly mark JSON field as modified for SQLAlchemy
     waypoint.updated_at = datetime.utcnow()
     db.commit()
 

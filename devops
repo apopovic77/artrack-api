@@ -46,6 +46,10 @@ case "$cmd" in
   release)
     "$SCRIPTS_DIR/release.sh" "$@"
     ;;
+  syncdev)
+    "$SCRIPTS_DIR/sync-dev.sh" "$@"
+    ;;
+
   update)
     "$SCRIPTS_DIR/update-devops.sh" "$@"
     ;;
