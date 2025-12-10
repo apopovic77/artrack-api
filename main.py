@@ -31,6 +31,7 @@ from artrack.routes import (
     segments_routes,
     routes_routes,
     guide_routes,
+    categories_routes,
 )
 
 # Create database tables
@@ -62,6 +63,7 @@ app.include_router(sync_routes.router, prefix="/sync", tags=["Sync"])
 app.include_router(segments_routes.router, prefix="/segments", tags=["Segments"])
 app.include_router(routes_routes.router, prefix="/tracks", tags=["Routes"])
 app.include_router(guide_routes.router, prefix="/guides", tags=["Audio Guides"])
+app.include_router(categories_routes.router, prefix="/categories", tags=["Categories"])
 
 @app.get("/")
 def root():

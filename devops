@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-REPO_ROOT="{{REPO_ROOT}}"
+# Dynamically resolve REPO_ROOT from script location
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$REPO_ROOT/.devops/scripts"
 
 usage() {
@@ -16,6 +17,7 @@ Commands:
   release [options]     Run release.sh
   update [options]      Sync DevOps templates (update-devops.sh)
   rollback              Launch rollback.sh (interactive)
+  syncdev               Sync dev branch with main
 
 Pass additional arguments after the command.
 USAGE
@@ -49,7 +51,6 @@ case "$cmd" in
   syncdev)
     "$SCRIPTS_DIR/sync-dev.sh" "$@"
     ;;
-
   update)
     "$SCRIPTS_DIR/update-devops.sh" "$@"
     ;;
@@ -64,4 +65,4 @@ case "$cmd" in
     usage
     exit 1
     ;;
- esac
+esac
