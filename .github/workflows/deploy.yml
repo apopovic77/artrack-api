@@ -105,6 +105,19 @@ jobs:
               echo "⚠️  No alembic migrations found (skipping)"
             fi
 
+            # Run custom migrations (if migrations directory exists)
+            if [ -d "migrations" ]; then
+              echo "🔄 Running custom migrations..."
+              for migration in migrations/*.py; do
+                echo "  Running: $migration"
+                DATABASE_PATH="$DB_PATH" /root/.pyenv/versions/3.11.9/bin/python "$migration" || {
+                  echo "❌ Migration $migration failed!"
+                  exit 1
+                }
+              done
+              echo "✅ Custom migrations completed"
+            fi
+
             # Restart service
             echo "Restarting artrack-api service..."
             systemctl restart artrack-api

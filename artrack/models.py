@@ -101,6 +101,8 @@ class TrackRoute(Base):
     storage_collection = Column(JSON, default=dict)
     # Route intro audio URL (generated welcome message when route is selected)
     intro_audio_url = Column(String, nullable=True)
+    # Metadata JSON for route-specific data (e.g., knowledge for audio guides)
+    metadata_json = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Waypoint(Base):
