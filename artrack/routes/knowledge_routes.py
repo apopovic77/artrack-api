@@ -754,8 +754,22 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
             item_type, item_id, text_type, prompt_data, extra1, extra2 = task_info
 
             try:
-                prompt_type = f"{item_type}_{text_type}" if item_type != "route" else f"route_{text_type}"
+                # Build correct prompt type key
+                # Route: route_intro, route_outro
+                # Segment: segment_entry, segment_exit
+                # POI: poi_approaching, poi_at (NOT poi_at_poi!)
+                if item_type == "route":
+                    prompt_type = f"route_{text_type}"
+                elif item_type == "poi" and text_type == "at_poi":
+                    prompt_type = "poi_at"  # Fix: prompts dict uses "poi_at" not "poi_at_poi"
+                else:
+                    prompt_type = f"{item_type}_{text_type}"
+
+                logger.info(f"Generating {item_type} {item_id} {text_type} with prompt_type={prompt_type}")
                 text = await _generate_narrative_text(prompt_type, prompt_data, config)
+
+                if not text:
+                    logger.warning(f"Empty text generated for {item_type} {item_id} {text_type}")
             except Exception as e:
                 logger.warning(f"Generation failed for {item_type} {item_id} {text_type}: {e}")
                 text = ""
