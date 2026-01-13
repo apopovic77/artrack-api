@@ -113,6 +113,14 @@ class AudioGenerateRequest(BaseModel):
     language: str = "de"
 
 
+class CueItem(BaseModel):
+    """A single cue within a knowledge item."""
+    index: int
+    text: str
+    audio_storage_id: Optional[int] = None
+    duration_seconds: Optional[float] = None
+
+
 # ============ Helper Functions ============
 
 def _load_track_data(db: Session, track_id: int) -> Dict:
@@ -321,6 +329,108 @@ Antworte NUR mit dem Text, keine Erklärungen.
     except Exception as e:
         logger.error(f"AI generation failed: {e}")
         return ""
+
+
+async def _split_text_into_cues(text: str, language: str = "de") -> List[str]:
+    """
+    Split narrative text into 3-5 cues using AI.
+
+    Each cue should be a natural break point that can be played/skipped independently.
+    This enables the audio manager to dynamically control playback.
+    """
+    if not text or len(text) < 50:
+        # Very short texts → single cue
+        return [text] if text else []
+
+    prompt = f"""
+Teile den folgenden Text in 3-5 kurze Abschnitte (Cues) auf.
+
+Regeln:
+- Jeder Cue sollte 1-3 Sätze lang sein
+- Jeder Cue muss eigenständig verständlich sein
+- Natürliche Sprechpausen als Trennpunkte nutzen
+- Inhaltlich zusammengehörige Sätze zusammen lassen
+- Mindestens 2 Cues, maximal 5 Cues
+
+Text:
+{text}
+
+Antworte NUR mit den Cues, getrennt durch "---" auf einer eigenen Zeile.
+Beispiel-Format:
+Erster Cue mit einem oder zwei Sätzen.
+---
+Zweiter Cue mit weiterem Inhalt.
+---
+Dritter Cue zum Abschluss.
+"""
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{AI_API_BASE}/ai/claude",
+                json={
+                    "prompt": prompt,
+                    "max_tokens": 500,
+                    "temperature": 0.3  # Low temp for consistent splitting
+                },
+                headers={
+                    "X-API-KEY": INTERNAL_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                timeout=60.0
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result.get("message", "").strip()
+
+                # Parse cues from response
+                cues = [cue.strip() for cue in ai_response.split("---") if cue.strip()]
+
+                # Validate cues
+                if len(cues) >= 2 and len(cues) <= 5:
+                    return cues
+                elif len(cues) == 1:
+                    return cues
+                else:
+                    # Fallback: split on sentence boundaries
+                    logger.warning(f"AI returned {len(cues)} cues, using fallback")
+                    return _fallback_split(text)
+            else:
+                logger.error(f"AI API returned {response.status_code}")
+                return _fallback_split(text)
+
+    except Exception as e:
+        logger.error(f"Cue splitting failed: {e}")
+        return _fallback_split(text)
+
+
+def _fallback_split(text: str) -> List[str]:
+    """Fallback: split text into ~3 parts on sentence boundaries."""
+    import re
+
+    # Split on sentence endings
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    if len(sentences) <= 2:
+        return [text]
+
+    # Group into 3 parts
+    total = len(sentences)
+    part_size = max(1, total // 3)
+
+    cues = []
+    for i in range(0, total, part_size):
+        chunk = " ".join(sentences[i:i + part_size])
+        if chunk.strip():
+            cues.append(chunk.strip())
+
+    # Merge last two if we have 4+ cues
+    while len(cues) > 3:
+        cues[-2] = cues[-2] + " " + cues[-1]
+        cues.pop()
+
+    return cues if cues else [text]
 
 
 # ============ API Endpoints (Track-Level) ============
@@ -850,15 +960,18 @@ async def generate_knowledge_audio(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Generate TTS audio for a single knowledge item.
+    Generate TTS audio for a single knowledge item with cue splitting.
+
+    Workflow:
+    1. Split text into 3-5 cues using AI
+    2. Generate TTS audio for each cue
+    3. Store cues with their audio_storage_ids
+    4. Return array of cues
 
     item_type: "route", "segment", "poi"
     item_id: route_id (for route), segment_name (for segment), waypoint_id (for poi)
     text_type: "intro", "outro", "entry", "exit", "approaching", "at_poi"
     """
-    import uuid
-    import asyncio
-
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -938,117 +1051,193 @@ async def generate_knowledge_audio(
     if not text:
         raise HTTPException(status_code=400, detail="No text found to generate audio from")
 
-    # Generate audio via Dialog API
-    job_id = str(uuid.uuid4())
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    # Step 1: Split text into cues
+    logger.info(f"Splitting text into cues for {source_id}")
+    cue_texts = await _split_text_into_cues(text, body.language)
+    logger.info(f"Split into {len(cue_texts)} cues")
 
-    dialog_payload = {
-        "id": job_id,
-        "type": "speech_request",
-        "timestamp": timestamp,
-        "content": {
-            "text": text,
-            "language": body.language,
-            "speed": 1.0,
-            "voice": body.voice
-        },
-        "config": {
-            "provider": "openai",
-            "output_format": "mp3",
-            "dialog_mode": True,
-            "add_music": body.add_music,
-            "add_sfx": False,
-            "analyze_only": False,
-            "voice_mapping": {"Narrator": body.voice}
-        },
-        "save_options": {
-            "is_public": True,
-            "link_id": f"knowledge;{track_id};{source_id}",
-            "collection_id": f"artrack-knowledge:{track_id}"
-        }
-    }
+    # Step 2: Generate TTS for each cue sequentially
+    cues_result = []
+    total_duration = 0.0
 
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{AI_API_BASE}/ai/dialog/start",
-                json=dialog_payload,
-                headers={"X-API-KEY": INTERNAL_API_KEY, "Content-Type": "application/json"},
-                timeout=30.0
-            )
+    async with httpx.AsyncClient() as client:
+        for idx, cue_text in enumerate(cue_texts):
+            job_id = str(uuid.uuid4())
+            timestamp = datetime.utcnow().isoformat() + "Z"
 
-            if response.status_code != 200:
-                logger.error(f"Dialog API failed: {response.status_code}")
-                raise HTTPException(status_code=500, detail="Failed to start audio generation")
+            dialog_payload = {
+                "id": job_id,
+                "type": "speech_request",
+                "timestamp": timestamp,
+                "content": {
+                    "text": cue_text,
+                    "language": body.language,
+                    "speed": 1.0,
+                    "voice": body.voice
+                },
+                "config": {
+                    "provider": "openai",
+                    "output_format": "mp3",
+                    "dialog_mode": True,
+                    "add_music": body.add_music if idx == 0 else False,  # Music only on first cue
+                    "add_sfx": False,
+                    "analyze_only": False,
+                    "voice_mapping": {"Narrator": body.voice}
+                },
+                "save_options": {
+                    "is_public": True,
+                    "link_id": f"knowledge;{track_id};{source_id};cue{idx}",
+                    "collection_id": f"artrack-knowledge:{track_id}"
+                }
+            }
 
-            # Poll for completion
-            max_wait = 120
-            elapsed = 0
-
-            while elapsed < max_wait:
-                await asyncio.sleep(2)
-                elapsed += 2
-
-                status_resp = await client.get(
-                    f"{AI_API_BASE}/ai/dialog/status",
-                    params={"id": job_id},
-                    headers={"X-API-KEY": INTERNAL_API_KEY},
+            try:
+                response = await client.post(
+                    f"{AI_API_BASE}/ai/dialog/start",
+                    json=dialog_payload,
+                    headers={"X-API-KEY": INTERNAL_API_KEY, "Content-Type": "application/json"},
                     timeout=30.0
                 )
 
-                if status_resp.status_code != 200:
+                if response.status_code != 200:
+                    logger.error(f"Dialog API failed for cue {idx}: {response.status_code}")
+                    cues_result.append({
+                        "index": idx,
+                        "text": cue_text,
+                        "audio_storage_id": None,
+                        "duration_seconds": None,
+                        "error": "Failed to start audio generation"
+                    })
                     continue
 
-                status_data = status_resp.json()
-                phase = status_data.get("phase", "")
+                # Poll for completion
+                max_wait = 60  # 60 seconds per cue
+                elapsed = 0
+                cue_done = False
 
-                if phase == "done":
-                    result = status_data.get("result", {})
-                    storage_id = result.get("id")
-                    audio_url = result.get("url") or result.get("file_url")
-                    duration = result.get("duration_seconds")
+                while elapsed < max_wait and not cue_done:
+                    await asyncio.sleep(2)
+                    elapsed += 2
 
-                    # Update knowledge with audio_storage_id
-                    if storage_id and source_obj:
-                        if body.item_type == "route":
-                            route_metadata = source_obj.metadata_json or {}
-                            if "knowledge" not in route_metadata:
-                                route_metadata["knowledge"] = {}
-                            if body.text_type not in route_metadata["knowledge"]:
-                                route_metadata["knowledge"][body.text_type] = {}
-                            route_metadata["knowledge"][body.text_type]["audio_storage_id"] = storage_id
-                            source_obj.metadata_json = route_metadata
-                            flag_modified(source_obj, "metadata_json")
-                        else:
-                            wp_metadata = source_obj.metadata_json or {}
-                            if "knowledge" not in wp_metadata:
-                                wp_metadata["knowledge"] = {}
-                            if body.text_type not in wp_metadata["knowledge"]:
-                                wp_metadata["knowledge"][body.text_type] = {}
-                            wp_metadata["knowledge"][body.text_type]["audio_storage_id"] = storage_id
-                            source_obj.metadata_json = wp_metadata
-                            flag_modified(source_obj, "metadata_json")
+                    status_resp = await client.get(
+                        f"{AI_API_BASE}/ai/dialog/status",
+                        params={"id": job_id},
+                        headers={"X-API-KEY": INTERNAL_API_KEY},
+                        timeout=30.0
+                    )
 
-                        db.commit()
+                    if status_resp.status_code != 200:
+                        continue
 
-                    return {
-                        "success": True,
-                        "audio_storage_id": storage_id,
-                        "audio_url": audio_url,
-                        "duration_seconds": duration,
-                        "item_type": body.item_type,
-                        "item_id": body.item_id,
-                        "text_type": body.text_type
-                    }
+                    status_data = status_resp.json()
+                    phase = status_data.get("phase", "")
 
-                elif phase == "error":
-                    raise HTTPException(status_code=500, detail="Audio generation failed")
+                    if phase == "done":
+                        result = status_data.get("result", {})
+                        storage_id = result.get("id")
+                        audio_url = result.get("url") or result.get("file_url")
+                        duration = result.get("duration_seconds", 0)
 
-            raise HTTPException(status_code=504, detail="Audio generation timed out")
+                        cues_result.append({
+                            "index": idx,
+                            "text": cue_text,
+                            "audio_storage_id": storage_id,
+                            "audio_url": audio_url,
+                            "duration_seconds": duration
+                        })
+                        total_duration += duration or 0
+                        cue_done = True
+                        logger.info(f"Cue {idx} done: storage_id={storage_id}, duration={duration}s")
 
-    except httpx.RequestError as e:
-        logger.error(f"Dialog API request failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+                    elif phase == "error":
+                        cues_result.append({
+                            "index": idx,
+                            "text": cue_text,
+                            "audio_storage_id": None,
+                            "duration_seconds": None,
+                            "error": "Audio generation failed"
+                        })
+                        cue_done = True
+
+                if not cue_done:
+                    cues_result.append({
+                        "index": idx,
+                        "text": cue_text,
+                        "audio_storage_id": None,
+                        "duration_seconds": None,
+                        "error": "Audio generation timed out"
+                    })
+
+            except httpx.RequestError as e:
+                logger.error(f"Dialog API request failed for cue {idx}: {e}")
+                cues_result.append({
+                    "index": idx,
+                    "text": cue_text,
+                    "audio_storage_id": None,
+                    "duration_seconds": None,
+                    "error": str(e)
+                })
+
+    # Step 3: Update knowledge with cues
+    if source_obj:
+        if body.item_type == "route":
+            route_metadata = source_obj.metadata_json or {}
+            if "knowledge" not in route_metadata:
+                route_metadata["knowledge"] = {}
+            if body.text_type not in route_metadata["knowledge"]:
+                route_metadata["knowledge"][body.text_type] = {}
+
+            # Store cues array
+            route_metadata["knowledge"][body.text_type]["cues"] = [
+                {
+                    "index": c["index"],
+                    "text": c["text"],
+                    "audio_storage_id": c.get("audio_storage_id"),
+                    "duration_seconds": c.get("duration_seconds")
+                }
+                for c in cues_result
+            ]
+            route_metadata["knowledge"][body.text_type]["total_duration"] = total_duration
+
+            source_obj.metadata_json = route_metadata
+            flag_modified(source_obj, "metadata_json")
+        else:
+            wp_metadata = source_obj.metadata_json or {}
+            if "knowledge" not in wp_metadata:
+                wp_metadata["knowledge"] = {}
+            if body.text_type not in wp_metadata["knowledge"]:
+                wp_metadata["knowledge"][body.text_type] = {}
+
+            # Store cues array
+            wp_metadata["knowledge"][body.text_type]["cues"] = [
+                {
+                    "index": c["index"],
+                    "text": c["text"],
+                    "audio_storage_id": c.get("audio_storage_id"),
+                    "duration_seconds": c.get("duration_seconds")
+                }
+                for c in cues_result
+            ]
+            wp_metadata["knowledge"][body.text_type]["total_duration"] = total_duration
+
+            source_obj.metadata_json = wp_metadata
+            flag_modified(source_obj, "metadata_json")
+
+        db.commit()
+
+    # Count successful cues
+    successful_cues = sum(1 for c in cues_result if c.get("audio_storage_id"))
+
+    return {
+        "success": successful_cues > 0,
+        "item_type": body.item_type,
+        "item_id": body.item_id,
+        "text_type": body.text_type,
+        "cues_count": len(cues_result),
+        "successful_cues": successful_cues,
+        "total_duration_seconds": total_duration,
+        "cues": cues_result
+    }
 
 
 @router.delete("/{track_id}/knowledge")
