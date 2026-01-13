@@ -401,11 +401,15 @@ async def generate_track_knowledge(
     """
     Generate all narrative texts for a track using AI.
 
+    Uses parallel AI calls for fast generation.
+
     Generates:
     - Intro/Outro for each route
     - Entry/Exit for each segment
     - Approaching/At for each POI
     """
+    import asyncio
+
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -433,12 +437,13 @@ async def generate_track_knowledge(
         "pois": {}
     }
 
-    # Generate route texts
+    # Collect all generation tasks
+    tasks = []
+    task_metadata = []  # Track what each task is for
+
+    # Route tasks
     if body.generate_routes:
         for route in data["routes"]:
-            logger.info(f"Generating texts for route '{route.name}'...")
-
-            # Estimate route length
             gps_count = db.query(Waypoint).filter(
                 Waypoint.track_id == track_id,
                 Waypoint.waypoint_type == "gps_track",
@@ -446,7 +451,8 @@ async def generate_track_knowledge(
             ).count()
             route_length_km = (gps_count * 10) / 1000
 
-            intro_text = await _generate_narrative_text(
+            # Intro task
+            tasks.append(_generate_narrative_text(
                 "route_intro",
                 {
                     "route_name": route.name,
@@ -454,72 +460,114 @@ async def generate_track_knowledge(
                     "route_length_km": route_length_km
                 },
                 config
-            )
+            ))
+            task_metadata.append(("route", str(route.id), "intro", route.name, route.id))
 
-            outro_text = await _generate_narrative_text(
+            # Outro task
+            tasks.append(_generate_narrative_text(
                 "route_outro",
                 {"route_name": route.name, "route_length_km": route_length_km},
                 config
-            )
+            ))
+            task_metadata.append(("route", str(route.id), "outro", route.name, route.id))
 
-            knowledge["routes"][str(route.id)] = {
-                "id": route.id,
-                "name": route.name,
-                "intro": {"text": intro_text, "text_original": intro_text, "edited": False},
-                "outro": {"text": outro_text, "text_original": outro_text, "edited": False}
-            }
-
-    # Generate segment texts
+    # Segment tasks
     if body.generate_segments:
         for seg_name, seg_data in data["segments"].items():
-            logger.info(f"Generating texts for segment '{seg_name}'...")
-
-            entry_text = await _generate_narrative_text(
+            # Entry task
+            tasks.append(_generate_narrative_text(
                 "segment_entry",
                 {"segment_name": seg_name, "segment_description": seg_data.get("description", "")},
                 config
-            )
+            ))
+            task_metadata.append(("segment", seg_name, "entry", seg_data))
 
-            exit_text = await _generate_narrative_text(
+            # Exit task
+            tasks.append(_generate_narrative_text(
                 "segment_exit",
                 {"segment_name": seg_name},
                 config
-            )
+            ))
+            task_metadata.append(("segment", seg_name, "exit", seg_data))
 
-            knowledge["segments"][seg_name] = {
-                "name": seg_name,
-                "start_waypoint_id": seg_data["start_wp"].id if seg_data.get("start_wp") else None,
-                "end_waypoint_id": seg_data["end_wp"].id if seg_data.get("end_wp") else None,
-                "entry": {"text": entry_text, "text_original": entry_text, "edited": False},
-                "exit": {"text": exit_text, "text_original": exit_text, "edited": False}
-            }
-
-    # Generate POI texts
+    # POI tasks
     if body.generate_pois:
         for poi in data["pois"]:
             poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
             poi_description = poi.user_description or ""
 
-            logger.info(f"Generating texts for POI '{poi_name}'...")
-
-            approaching_text = await _generate_narrative_text(
+            # Approaching task
+            tasks.append(_generate_narrative_text(
                 "poi_approaching",
                 {"poi_name": poi_name, "poi_description": poi_description},
                 config
-            )
+            ))
+            task_metadata.append(("poi", str(poi.id), "approaching", poi_name, poi.id))
 
-            at_poi_text = await _generate_narrative_text(
+            # At POI task
+            tasks.append(_generate_narrative_text(
                 "poi_at",
                 {"poi_name": poi_name, "poi_description": poi_description},
                 config
-            )
+            ))
+            task_metadata.append(("poi", str(poi.id), "at_poi", poi_name, poi.id))
 
-            knowledge["pois"][str(poi.id)] = {
-                "waypoint_id": poi.id,
-                "name": poi_name,
-                "approaching": {"text": approaching_text, "text_original": approaching_text, "edited": False},
-                "at_poi": {"text": at_poi_text, "text_original": at_poi_text, "edited": False}
+    # Run all tasks in parallel
+    logger.info(f"Generating {len(tasks)} texts in parallel...")
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Process results
+    for i, result in enumerate(results):
+        meta = task_metadata[i]
+        text = result if isinstance(result, str) else ""
+
+        if meta[0] == "route":
+            _, route_id, text_type, route_name, rid = meta
+            if route_id not in knowledge["routes"]:
+                knowledge["routes"][route_id] = {
+                    "id": rid,
+                    "name": route_name,
+                    "intro": {"text": "", "text_original": "", "edited": False},
+                    "outro": {"text": "", "text_original": "", "edited": False}
+                }
+            knowledge["routes"][route_id][text_type] = {
+                "text": text,
+                "text_original": text,
+                "edited": False
             }
+
+        elif meta[0] == "segment":
+            _, seg_name, text_type, seg_data = meta
+            if seg_name not in knowledge["segments"]:
+                knowledge["segments"][seg_name] = {
+                    "name": seg_name,
+                    "start_waypoint_id": seg_data["start_wp"].id if seg_data.get("start_wp") else None,
+                    "end_waypoint_id": seg_data["end_wp"].id if seg_data.get("end_wp") else None,
+                    "entry": {"text": "", "text_original": "", "edited": False},
+                    "exit": {"text": "", "text_original": "", "edited": False}
+                }
+            knowledge["segments"][seg_name][text_type] = {
+                "text": text,
+                "text_original": text,
+                "edited": False
+            }
+
+        elif meta[0] == "poi":
+            _, poi_id, text_type, poi_name, wid = meta
+            if poi_id not in knowledge["pois"]:
+                knowledge["pois"][poi_id] = {
+                    "waypoint_id": wid,
+                    "name": poi_name,
+                    "approaching": {"text": "", "text_original": "", "edited": False},
+                    "at_poi": {"text": "", "text_original": "", "edited": False}
+                }
+            knowledge["pois"][poi_id][text_type] = {
+                "text": text,
+                "text_original": text,
+                "edited": False
+            }
+
+    logger.info(f"Generation complete: {len(tasks)} texts generated")
 
     return {
         "success": True,
@@ -528,7 +576,7 @@ async def generate_track_knowledge(
             "routes_count": len(knowledge["routes"]),
             "segments_count": len(knowledge["segments"]),
             "pois_count": len(knowledge["pois"]),
-            "total_texts": len(knowledge["routes"]) * 2 + len(knowledge["segments"]) * 2 + len(knowledge["pois"]) * 2
+            "total_texts": len(tasks)
         }
     }
 
