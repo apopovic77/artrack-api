@@ -16,7 +16,7 @@ Endpoints (Track-Level):
 - DELETE /tracks/{track_id}/knowledge - Delete all knowledge
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from typing import Optional, Dict, Any, List
@@ -25,13 +25,18 @@ from pydantic import BaseModel
 import httpx
 import json
 import logging
+import uuid
+import asyncio
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Track, Waypoint, TrackRoute
 from ..auth import get_current_user, User
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# In-memory job storage (for background generation)
+_generation_jobs: Dict[str, Dict] = {}
 
 # AI API endpoint
 INTERNAL_API_KEY = "Inetpass1"
@@ -391,25 +396,171 @@ def get_track_knowledge(
     }
 
 
+async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_id: int):
+    """Background task that runs the actual generation."""
+    job = _generation_jobs[job_id]
+
+    try:
+        db = SessionLocal()
+        track = db.query(Track).filter(Track.id == track_id).first()
+        data = _load_track_data(db, track_id)
+
+        config = KnowledgeConfig(
+            persona=body_dict.get("persona", ""),
+            target_audience=body_dict.get("target_audience", ""),
+            language=body_dict.get("language", "de"),
+            tone=body_dict.get("tone", "friendly"),
+            background_knowledge=body_dict.get("background_knowledge", "")
+        )
+
+        knowledge = {
+            "version": 3,
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "config": config.model_dump(),
+            "routes": {},
+            "segments": {},
+            "pois": {}
+        }
+
+        # Build task list
+        task_list = []
+
+        if body_dict.get("generate_routes", True):
+            for route in data["routes"]:
+                gps_count = db.query(Waypoint).filter(
+                    Waypoint.track_id == track_id,
+                    Waypoint.waypoint_type == "gps_track",
+                    Waypoint.route_id == route.id
+                ).count()
+                route_length_km = (gps_count * 10) / 1000
+
+                task_list.append(("route", str(route.id), "intro", {
+                    "route_name": route.name,
+                    "route_description": route.description or "",
+                    "route_length_km": route_length_km
+                }, route.name, route.id))
+
+                task_list.append(("route", str(route.id), "outro", {
+                    "route_name": route.name,
+                    "route_length_km": route_length_km
+                }, route.name, route.id))
+
+        if body_dict.get("generate_segments", True):
+            for seg_name, seg_data in data["segments"].items():
+                task_list.append(("segment", seg_name, "entry", {
+                    "segment_name": seg_name,
+                    "segment_description": seg_data.get("description", "")
+                }, seg_data, None))
+
+                task_list.append(("segment", seg_name, "exit", {
+                    "segment_name": seg_name
+                }, seg_data, None))
+
+        if body_dict.get("generate_pois", True):
+            for poi in data["pois"]:
+                poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
+                poi_description = poi.user_description or ""
+
+                task_list.append(("poi", str(poi.id), "approaching", {
+                    "poi_name": poi_name,
+                    "poi_description": poi_description
+                }, poi_name, poi.id))
+
+                task_list.append(("poi", str(poi.id), "at_poi", {
+                    "poi_name": poi_name,
+                    "poi_description": poi_description
+                }, poi_name, poi.id))
+
+        db.close()
+
+        job["total"] = len(task_list)
+        job["status"] = "running"
+
+        # Process sequentially
+        error_count = 0
+        for i, task_info in enumerate(task_list):
+            item_type, item_id, text_type, prompt_data, extra1, extra2 = task_info
+
+            try:
+                prompt_type = f"{item_type}_{text_type}" if item_type != "route" else f"route_{text_type}"
+                text = await _generate_narrative_text(prompt_type, prompt_data, config)
+            except Exception as e:
+                logger.warning(f"Generation failed for {item_type} {item_id} {text_type}: {e}")
+                text = ""
+                error_count += 1
+
+            # Store result
+            if item_type == "route":
+                if item_id not in knowledge["routes"]:
+                    knowledge["routes"][item_id] = {
+                        "id": extra2,
+                        "name": extra1,
+                        "intro": {"text": "", "text_original": "", "edited": False},
+                        "outro": {"text": "", "text_original": "", "edited": False}
+                    }
+                knowledge["routes"][item_id][text_type] = {
+                    "text": text, "text_original": text, "edited": False
+                }
+
+            elif item_type == "segment":
+                seg_data = extra1
+                if item_id not in knowledge["segments"]:
+                    knowledge["segments"][item_id] = {
+                        "name": item_id,
+                        "start_waypoint_id": seg_data["start_wp"].id if seg_data.get("start_wp") else None,
+                        "end_waypoint_id": seg_data["end_wp"].id if seg_data.get("end_wp") else None,
+                        "entry": {"text": "", "text_original": "", "edited": False},
+                        "exit": {"text": "", "text_original": "", "edited": False}
+                    }
+                knowledge["segments"][item_id][text_type] = {
+                    "text": text, "text_original": text, "edited": False
+                }
+
+            elif item_type == "poi":
+                if item_id not in knowledge["pois"]:
+                    knowledge["pois"][item_id] = {
+                        "waypoint_id": extra2,
+                        "name": extra1,
+                        "approaching": {"text": "", "text_original": "", "edited": False},
+                        "at_poi": {"text": "", "text_original": "", "edited": False}
+                    }
+                knowledge["pois"][item_id][text_type] = {
+                    "text": text, "text_original": text, "edited": False
+                }
+
+            job["completed"] = i + 1
+            job["current_item"] = f"{item_type}: {extra1 if item_type != 'segment' else item_id}"
+
+        job["status"] = "completed"
+        job["knowledge"] = knowledge
+        job["stats"] = {
+            "routes_count": len(knowledge["routes"]),
+            "segments_count": len(knowledge["segments"]),
+            "pois_count": len(knowledge["pois"]),
+            "total_texts": len(task_list),
+            "successful_texts": len(task_list) - error_count,
+            "failed_texts": error_count
+        }
+
+    except Exception as e:
+        logger.error(f"Generation job {job_id} failed: {e}")
+        job["status"] = "failed"
+        job["error"] = str(e)
+
+
 @router.post("/{track_id}/knowledge/generate")
-async def generate_track_knowledge(
+async def start_generate_track_knowledge(
     track_id: int,
     body: GenerateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Generate all narrative texts for a track using AI.
+    Start background generation of narrative texts.
 
-    Uses parallel AI calls for fast generation.
-
-    Generates:
-    - Intro/Outro for each route
-    - Entry/Exit for each segment
-    - Approaching/At for each POI
+    Returns a job_id immediately. Poll /generate/status?job_id=xxx for progress.
     """
-    import asyncio
-
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
@@ -417,9 +568,111 @@ async def generate_track_knowledge(
     if track.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Only track creator can generate knowledge")
 
-    # Load all track data
+    # Create job
+    job_id = str(uuid.uuid4())
+    _generation_jobs[job_id] = {
+        "status": "starting",
+        "track_id": track_id,
+        "completed": 0,
+        "total": 0,
+        "current_item": "",
+        "knowledge": None,
+        "stats": None,
+        "error": None
+    }
+
+    # Start background task
+    background_tasks.add_task(
+        _run_generation_job,
+        job_id,
+        track_id,
+        body.model_dump(),
+        current_user.id
+    )
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "message": "Generation started. Poll /generate/status for progress."
+    }
+
+
+@router.get("/{track_id}/knowledge/generate/status")
+async def get_generation_status(
+    track_id: int,
+    job_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get status of a background generation job.
+
+    Returns progress, and when complete, the generated knowledge.
+    """
+    if job_id not in _generation_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = _generation_jobs[job_id]
+
+    if job["track_id"] != track_id:
+        raise HTTPException(status_code=403, detail="Job does not belong to this track")
+
+    response = {
+        "status": job["status"],
+        "completed": job["completed"],
+        "total": job["total"],
+        "current_item": job["current_item"],
+        "progress_percent": round(job["completed"] / max(job["total"], 1) * 100, 1)
+    }
+
+    if job["status"] == "completed":
+        response["knowledge"] = job["knowledge"]
+        response["stats"] = job["stats"]
+        # Clean up old job after retrieval
+        # del _generation_jobs[job_id]
+
+    if job["status"] == "failed":
+        response["error"] = job["error"]
+
+    return response
+
+
+# Keep old synchronous endpoint for small generations (backwards compatibility)
+@router.post("/{track_id}/knowledge/generate-sync")
+async def generate_track_knowledge_sync(
+    track_id: int,
+    body: GenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Synchronous generation (for small tracks only, may timeout on large tracks).
+    Use /generate for large tracks with background processing.
+    """
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only track creator can generate knowledge")
+
     data = _load_track_data(db, track_id)
 
+    # Count items
+    total_items = 0
+    if body.generate_routes:
+        total_items += len(data["routes"]) * 2
+    if body.generate_segments:
+        total_items += len(data["segments"]) * 2
+    if body.generate_pois:
+        total_items += len(data["pois"]) * 2
+
+    if total_items > 20:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many items ({total_items}). Use /generate for background processing."
+        )
+
+    # Run synchronously for small tracks
     config = KnowledgeConfig(
         persona=body.persona,
         target_audience=body.target_audience,
@@ -437,154 +690,17 @@ async def generate_track_knowledge(
         "pois": {}
     }
 
-    # Collect all generation tasks
-    tasks = []
-    task_metadata = []  # Track what each task is for
-
-    # Route tasks
+    # Generate routes
     if body.generate_routes:
         for route in data["routes"]:
-            gps_count = db.query(Waypoint).filter(
-                Waypoint.track_id == track_id,
-                Waypoint.waypoint_type == "gps_track",
-                Waypoint.route_id == route.id
-            ).count()
-            route_length_km = (gps_count * 10) / 1000
-
-            # Intro task
-            tasks.append(_generate_narrative_text(
-                "route_intro",
-                {
-                    "route_name": route.name,
-                    "route_description": route.description or "",
-                    "route_length_km": route_length_km
-                },
-                config
-            ))
-            task_metadata.append(("route", str(route.id), "intro", route.name, route.id))
-
-            # Outro task
-            tasks.append(_generate_narrative_text(
-                "route_outro",
-                {"route_name": route.name, "route_length_km": route_length_km},
-                config
-            ))
-            task_metadata.append(("route", str(route.id), "outro", route.name, route.id))
-
-    # Segment tasks
-    if body.generate_segments:
-        for seg_name, seg_data in data["segments"].items():
-            # Entry task
-            tasks.append(_generate_narrative_text(
-                "segment_entry",
-                {"segment_name": seg_name, "segment_description": seg_data.get("description", "")},
-                config
-            ))
-            task_metadata.append(("segment", seg_name, "entry", seg_data))
-
-            # Exit task
-            tasks.append(_generate_narrative_text(
-                "segment_exit",
-                {"segment_name": seg_name},
-                config
-            ))
-            task_metadata.append(("segment", seg_name, "exit", seg_data))
-
-    # POI tasks
-    if body.generate_pois:
-        for poi in data["pois"]:
-            poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
-            poi_description = poi.user_description or ""
-
-            # Approaching task
-            tasks.append(_generate_narrative_text(
-                "poi_approaching",
-                {"poi_name": poi_name, "poi_description": poi_description},
-                config
-            ))
-            task_metadata.append(("poi", str(poi.id), "approaching", poi_name, poi.id))
-
-            # At POI task
-            tasks.append(_generate_narrative_text(
-                "poi_at",
-                {"poi_name": poi_name, "poi_description": poi_description},
-                config
-            ))
-            task_metadata.append(("poi", str(poi.id), "at_poi", poi_name, poi.id))
-
-    # Run tasks sequentially for reliability
-    results = []
-    logger.info(f"Generating {len(tasks)} texts sequentially...")
-
-    for i, task in enumerate(tasks):
-        try:
-            result = await task
-            results.append(result)
-            if (i + 1) % 10 == 0:
-                logger.info(f"Progress: {i + 1}/{len(tasks)} texts generated")
-        except Exception as e:
-            logger.warning(f"Task {i} failed: {e}")
-            results.append(e)
-
-    # Process results and count errors
-    error_count = 0
-    for i, result in enumerate(results):
-        meta = task_metadata[i]
-        if isinstance(result, Exception):
-            error_count += 1
-            logger.warning(f"AI generation failed for {meta[0]} {meta[1]} {meta[2]}: {result}")
-            text = ""
-        else:
-            text = result if isinstance(result, str) else ""
-
-        if meta[0] == "route":
-            _, route_id, text_type, route_name, rid = meta
-            if route_id not in knowledge["routes"]:
-                knowledge["routes"][route_id] = {
-                    "id": rid,
-                    "name": route_name,
-                    "intro": {"text": "", "text_original": "", "edited": False},
-                    "outro": {"text": "", "text_original": "", "edited": False}
-                }
-            knowledge["routes"][route_id][text_type] = {
-                "text": text,
-                "text_original": text,
-                "edited": False
+            intro = await _generate_narrative_text("route_intro", {"route_name": route.name}, config)
+            outro = await _generate_narrative_text("route_outro", {"route_name": route.name}, config)
+            knowledge["routes"][str(route.id)] = {
+                "id": route.id,
+                "name": route.name,
+                "intro": {"text": intro, "text_original": intro, "edited": False},
+                "outro": {"text": outro, "text_original": outro, "edited": False}
             }
-
-        elif meta[0] == "segment":
-            _, seg_name, text_type, seg_data = meta
-            if seg_name not in knowledge["segments"]:
-                knowledge["segments"][seg_name] = {
-                    "name": seg_name,
-                    "start_waypoint_id": seg_data["start_wp"].id if seg_data.get("start_wp") else None,
-                    "end_waypoint_id": seg_data["end_wp"].id if seg_data.get("end_wp") else None,
-                    "entry": {"text": "", "text_original": "", "edited": False},
-                    "exit": {"text": "", "text_original": "", "edited": False}
-                }
-            knowledge["segments"][seg_name][text_type] = {
-                "text": text,
-                "text_original": text,
-                "edited": False
-            }
-
-        elif meta[0] == "poi":
-            _, poi_id, text_type, poi_name, wid = meta
-            if poi_id not in knowledge["pois"]:
-                knowledge["pois"][poi_id] = {
-                    "waypoint_id": wid,
-                    "name": poi_name,
-                    "approaching": {"text": "", "text_original": "", "edited": False},
-                    "at_poi": {"text": "", "text_original": "", "edited": False}
-                }
-            knowledge["pois"][poi_id][text_type] = {
-                "text": text,
-                "text_original": text,
-                "edited": False
-            }
-
-    success_count = len(tasks) - error_count
-    logger.info(f"Generation complete: {success_count}/{len(tasks)} texts generated ({error_count} errors)")
 
     return {
         "success": True,
@@ -593,9 +709,7 @@ async def generate_track_knowledge(
             "routes_count": len(knowledge["routes"]),
             "segments_count": len(knowledge["segments"]),
             "pois_count": len(knowledge["pois"]),
-            "total_texts": len(tasks),
-            "successful_texts": success_count,
-            "failed_texts": error_count
+            "total_texts": total_items
         }
     }
 
