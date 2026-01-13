@@ -2,12 +2,17 @@
 Route Knowledge API v2
 
 Handles generation and storage of pre-generated narrative texts for audio guides.
-Storage: TrackRoute.metadata_json["knowledge"]
+
+Storage:
+- Route texts (intro/outro) → TrackRoute.metadata_json["knowledge"]
+- POI texts (approaching/at_poi) → Waypoint.metadata_json["knowledge"]
+- Segment texts (entry/exit) → Segment marker Waypoint.metadata_json["knowledge"]
 
 Endpoints:
-- GET  /tracks/{track_id}/routes/{route_id}/knowledge - Get existing knowledge
+- GET  /tracks/{track_id}/routes/{route_id}/knowledge - Get all knowledge for a route
 - POST /tracks/{track_id}/routes/{route_id}/knowledge/generate - Generate all narratives
-- PUT  /tracks/{track_id}/routes/{route_id}/knowledge - Save edited knowledge
+- PUT  /tracks/{track_id}/routes/{route_id}/knowledge - Save all knowledge
+- DELETE /tracks/{track_id}/routes/{route_id}/knowledge - Delete all knowledge
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -49,21 +54,12 @@ class KnowledgeConfig(BaseModel):
     background_knowledge: str = ""  # Allgemeine Infos zum Ort/Route
 
 
-class RouteKnowledge(BaseModel):
-    version: int = 2
-    generated_at: Optional[str] = None
-    config: KnowledgeConfig
-    route: Dict[str, NarrativeText]  # intro, outro
-    segments: Dict[str, Dict[str, Any]]  # seg_id -> {name, entry, exit}
-    pois: Dict[str, Dict[str, Any]]  # poi_id -> {name, approaching, at_poi}
-
-
 class GenerateRequest(BaseModel):
     persona: str = ""
     target_audience: str = ""
     language: str = "de"
     tone: str = "friendly"
-    background_knowledge: str = ""  # Allgemeine Infos zum Ort (z.B. Geschichte, Fakten)
+    background_knowledge: str = ""
     generate_segments: bool = True
     generate_pois: bool = True
 
@@ -73,7 +69,7 @@ class GenerateRequest(BaseModel):
 def _load_route_data(db: Session, track_id: int, route_id: int) -> tuple:
     """Load route, segments, and POIs for knowledge generation."""
 
-    # Load all waypoints for this track
+    # Load all waypoints for this track (except GPS tracks)
     all_waypoints = db.query(Waypoint).filter(
         Waypoint.track_id == track_id,
         Waypoint.waypoint_type != "gps_track"
@@ -91,7 +87,7 @@ def _load_route_data(db: Session, track_id: int, route_id: int) -> tuple:
         if wp.metadata_json.get("snap", {}).get("route_id") == route_id
     ]
 
-    # Group by segment name
+    # Group by segment name - return waypoint objects for saving
     segments = {}
     for wp in route_segment_wps:
         segment_meta = wp.metadata_json.get("segment", {})
@@ -109,19 +105,32 @@ def _load_route_data(db: Session, track_id: int, route_id: int) -> tuple:
         elif role == "end":
             segments[seg_name]["end_wp"] = wp
 
-    # Filter POIs (non-segment waypoints)
+    # Filter POIs (non-segment waypoints snapped to this route)
     pois = [
         wp for wp in all_waypoints
-        if not wp.metadata_json or not wp.metadata_json.get("segment")
+        if (not wp.metadata_json or not wp.metadata_json.get("segment"))
+        and wp.metadata_json and wp.metadata_json.get("snap", {}).get("route_id") == route_id
     ]
 
-    # Filter POIs for this route (snapped to this route)
-    route_pois = [
-        wp for wp in pois
-        if wp.metadata_json and wp.metadata_json.get("snap", {}).get("route_id") == route_id
-    ]
+    return segments, pois
 
-    return segments, route_pois
+
+def _get_waypoint_knowledge(wp: Waypoint) -> Optional[Dict]:
+    """Get knowledge from a waypoint's metadata."""
+    if not wp or not wp.metadata_json:
+        return None
+    return wp.metadata_json.get("knowledge")
+
+
+def _save_waypoint_knowledge(wp: Waypoint, knowledge: Dict, db: Session):
+    """Save knowledge to a waypoint's metadata."""
+    if not wp:
+        return
+
+    metadata = wp.metadata_json or {}
+    metadata["knowledge"] = knowledge
+    wp.metadata_json = metadata
+    flag_modified(wp, "metadata_json")
 
 
 async def _generate_narrative_text(
@@ -129,17 +138,7 @@ async def _generate_narrative_text(
     context: Dict[str, Any],
     config: KnowledgeConfig
 ) -> str:
-    """
-    Generate narrative text using AI.
-
-    Types:
-    - route_intro: Welcome message when starting the route
-    - route_outro: Farewell message when completing the route
-    - segment_entry: Message when entering a segment
-    - segment_exit: Message when leaving a segment
-    - poi_approaching: Message when approaching a POI
-    - poi_at: Message when at a POI
-    """
+    """Generate narrative text using AI."""
 
     # Build common context block
     background = ""
@@ -283,8 +282,12 @@ def get_route_knowledge(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get existing route knowledge.
-    Returns the knowledge JSON from TrackRoute.metadata_json["knowledge"].
+    Get all knowledge for a route.
+
+    Aggregates:
+    - Route knowledge from TrackRoute.metadata_json["knowledge"]
+    - POI knowledge from each Waypoint.metadata_json["knowledge"]
+    - Segment knowledge from segment marker Waypoints
     """
     # Load track and route
     track = db.query(Track).filter(Track.id == track_id).first()
@@ -302,20 +305,72 @@ def get_route_knowledge(
     if not route:
         raise HTTPException(status_code=404, detail="Route not found")
 
-    # Get knowledge from metadata
-    metadata = route.metadata_json or {}
-    knowledge = metadata.get("knowledge")
+    # Load segments and POIs
+    segments, pois = _load_route_data(db, track_id, route_id)
 
-    if not knowledge:
-        return {
-            "exists": False,
-            "knowledge": None,
-            "route_id": route_id,
-            "route_name": route.name
+    # Get route-level knowledge
+    route_metadata = route.metadata_json or {}
+    route_knowledge = route_metadata.get("knowledge", {})
+
+    # Build aggregated response
+    knowledge = {
+        "version": 2,
+        "config": route_knowledge.get("config", {}),
+        "generated_at": route_knowledge.get("generated_at"),
+        "route": route_knowledge.get("route", {
+            "intro": {"text": "", "edited": False},
+            "outro": {"text": "", "edited": False}
+        }),
+        "segments": {},
+        "pois": {}
+    }
+
+    # Load segment knowledge from waypoints
+    for seg_name, seg_data in segments.items():
+        start_wp = seg_data.get("start_wp")
+        end_wp = seg_data.get("end_wp")
+
+        # Entry text from start waypoint
+        start_knowledge = _get_waypoint_knowledge(start_wp) or {}
+        # Exit text from end waypoint
+        end_knowledge = _get_waypoint_knowledge(end_wp) or {}
+
+        knowledge["segments"][seg_name] = {
+            "name": seg_name,
+            "start_waypoint_id": start_wp.id if start_wp else None,
+            "end_waypoint_id": end_wp.id if end_wp else None,
+            "entry": start_knowledge.get("entry", {"text": "", "edited": False}),
+            "exit": end_knowledge.get("exit", {"text": "", "edited": False})
         }
 
+    # Load POI knowledge from waypoints
+    for poi in pois:
+        poi_knowledge = _get_waypoint_knowledge(poi) or {}
+        poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
+
+        knowledge["pois"][str(poi.id)] = {
+            "waypoint_id": poi.id,
+            "name": poi_name,
+            "approaching": poi_knowledge.get("approaching", {"text": "", "edited": False}),
+            "at_poi": poi_knowledge.get("at_poi", {"text": "", "edited": False})
+        }
+
+    # Check if any knowledge exists
+    has_route_texts = bool(knowledge["route"].get("intro", {}).get("text") or
+                          knowledge["route"].get("outro", {}).get("text"))
+    has_segment_texts = any(
+        seg.get("entry", {}).get("text") or seg.get("exit", {}).get("text")
+        for seg in knowledge["segments"].values()
+    )
+    has_poi_texts = any(
+        poi.get("approaching", {}).get("text") or poi.get("at_poi", {}).get("text")
+        for poi in knowledge["pois"].values()
+    )
+
+    exists = has_route_texts or has_segment_texts or has_poi_texts
+
     return {
-        "exists": True,
+        "exists": exists,
         "knowledge": knowledge,
         "route_id": route_id,
         "route_name": route.name
@@ -333,12 +388,8 @@ async def generate_route_knowledge(
     """
     Generate all narrative texts for a route using AI.
 
-    Generates:
-    - Route intro/outro
-    - Segment entry/exit texts (if generate_segments=True)
-    - POI approaching/at texts (if generate_pois=True)
-
-    Returns the complete knowledge JSON (not yet saved).
+    Returns the generated knowledge (not yet saved).
+    Call PUT to save the knowledge.
     """
     # Load track and route
     track = db.query(Track).filter(Track.id == track_id).first()
@@ -365,8 +416,6 @@ async def generate_route_knowledge(
         Waypoint.waypoint_type == "gps_track",
         Waypoint.route_id == route_id
     ).count()
-
-    # Rough estimate: ~10m per GPS point average
     route_length_km = (gps_points * 10) / 1000
 
     # Build config
@@ -408,10 +457,7 @@ async def generate_route_knowledge(
     logger.info(f"Generating route outro for '{route.name}'...")
     outro_text = await _generate_narrative_text(
         "route_outro",
-        {
-            "route_name": route.name,
-            "route_length_km": route_length_km
-        },
+        {"route_name": route.name, "route_length_km": route_length_km},
         config
     )
     knowledge["route"]["outro"]["text"] = outro_text
@@ -420,11 +466,11 @@ async def generate_route_knowledge(
     # Generate segment texts
     if body.generate_segments:
         for seg_name, seg_data in segments.items():
-            logger.info(f"Generating segment texts for '{seg_name}'...")
-
-            # Get description from start waypoint
             start_wp = seg_data.get("start_wp")
+            end_wp = seg_data.get("end_wp")
             seg_description = start_wp.user_description if start_wp else ""
+
+            logger.info(f"Generating segment texts for '{seg_name}'...")
 
             entry_text = await _generate_narrative_text(
                 "segment_entry",
@@ -440,6 +486,8 @@ async def generate_route_knowledge(
 
             knowledge["segments"][seg_name] = {
                 "name": seg_name,
+                "start_waypoint_id": start_wp.id if start_wp else None,
+                "end_waypoint_id": end_wp.id if end_wp else None,
                 "entry": {"text": entry_text, "text_original": entry_text, "edited": False, "audio_storage_id": None},
                 "exit": {"text": exit_text, "text_original": exit_text, "edited": False, "audio_storage_id": None}
             }
@@ -447,7 +495,6 @@ async def generate_route_knowledge(
     # Generate POI texts
     if body.generate_pois:
         for poi in pois:
-            poi_id = str(poi.id)
             poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
             poi_description = poi.user_description or ""
 
@@ -465,7 +512,8 @@ async def generate_route_knowledge(
                 config
             )
 
-            knowledge["pois"][poi_id] = {
+            knowledge["pois"][str(poi.id)] = {
+                "waypoint_id": poi.id,
                 "name": poi_name,
                 "approaching": {"text": approaching_text, "text_original": approaching_text, "edited": False, "audio_storage_id": None},
                 "at_poi": {"text": at_poi_text, "text_original": at_poi_text, "edited": False, "audio_storage_id": None}
@@ -491,10 +539,11 @@ def save_route_knowledge(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Save route knowledge JSON.
+    Save all knowledge - distributes to respective objects.
 
-    Body should contain the complete knowledge object.
-    Stores in TrackRoute.metadata_json["knowledge"].
+    - Route texts → TrackRoute.metadata_json["knowledge"]
+    - POI texts → Waypoint.metadata_json["knowledge"]
+    - Segment texts → Segment marker Waypoint.metadata_json["knowledge"]
     """
     # Load track and route
     track = db.query(Track).filter(Track.id == track_id).first()
@@ -512,25 +561,61 @@ def save_route_knowledge(
     if not route:
         raise HTTPException(status_code=404, detail="Route not found")
 
-    # Get knowledge from body
     knowledge = body.get("knowledge")
     if not knowledge:
         raise HTTPException(status_code=400, detail="Knowledge object required")
 
-    # Update metadata
-    metadata = route.metadata_json or {}
-    metadata["knowledge"] = knowledge
+    # Save route-level knowledge (intro/outro + config)
+    route_knowledge = {
+        "version": knowledge.get("version", 2),
+        "generated_at": knowledge.get("generated_at"),
+        "config": knowledge.get("config", {}),
+        "route": knowledge.get("route", {})
+    }
 
-    # Save
-    route.metadata_json = metadata
+    route_metadata = route.metadata_json or {}
+    route_metadata["knowledge"] = route_knowledge
+    route.metadata_json = route_metadata
     flag_modified(route, "metadata_json")
+
+    # Save POI knowledge to individual waypoints
+    pois_knowledge = knowledge.get("pois", {})
+    for poi_id_str, poi_data in pois_knowledge.items():
+        waypoint_id = poi_data.get("waypoint_id") or int(poi_id_str)
+        waypoint = db.query(Waypoint).filter(Waypoint.id == waypoint_id).first()
+
+        if waypoint:
+            poi_knowledge = {
+                "approaching": poi_data.get("approaching", {}),
+                "at_poi": poi_data.get("at_poi", {})
+            }
+            _save_waypoint_knowledge(waypoint, poi_knowledge, db)
+
+    # Save segment knowledge to marker waypoints
+    segments_knowledge = knowledge.get("segments", {})
+    for seg_name, seg_data in segments_knowledge.items():
+        # Save entry to start waypoint
+        start_wp_id = seg_data.get("start_waypoint_id")
+        if start_wp_id:
+            start_wp = db.query(Waypoint).filter(Waypoint.id == start_wp_id).first()
+            if start_wp:
+                _save_waypoint_knowledge(start_wp, {"entry": seg_data.get("entry", {})}, db)
+
+        # Save exit to end waypoint
+        end_wp_id = seg_data.get("end_waypoint_id")
+        if end_wp_id:
+            end_wp = db.query(Waypoint).filter(Waypoint.id == end_wp_id).first()
+            if end_wp:
+                _save_waypoint_knowledge(end_wp, {"exit": seg_data.get("exit", {})}, db)
+
     db.commit()
-    db.refresh(route)
 
     return {
         "success": True,
         "route_id": route_id,
-        "saved_at": datetime.utcnow().isoformat() + "Z"
+        "saved_at": datetime.utcnow().isoformat() + "Z",
+        "saved_pois": len(pois_knowledge),
+        "saved_segments": len(segments_knowledge)
     }
 
 
@@ -542,8 +627,12 @@ def delete_route_knowledge(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Delete route knowledge.
-    Removes knowledge from TrackRoute.metadata_json.
+    Delete all knowledge for a route.
+
+    Removes knowledge from:
+    - TrackRoute.metadata_json["knowledge"]
+    - All POI waypoints
+    - All segment marker waypoints
     """
     # Load track and route
     track = db.query(Track).filter(Track.id == track_id).first()
@@ -561,12 +650,34 @@ def delete_route_knowledge(
     if not route:
         raise HTTPException(status_code=404, detail="Route not found")
 
-    # Remove knowledge from metadata
-    metadata = route.metadata_json or {}
-    if "knowledge" in metadata:
-        del metadata["knowledge"]
-        route.metadata_json = metadata
+    # Load segments and POIs
+    segments, pois = _load_route_data(db, track_id, route_id)
+
+    # Remove route knowledge
+    route_metadata = route.metadata_json or {}
+    if "knowledge" in route_metadata:
+        del route_metadata["knowledge"]
+        route.metadata_json = route_metadata
         flag_modified(route, "metadata_json")
-        db.commit()
+
+    # Remove POI knowledge
+    for poi in pois:
+        poi_metadata = poi.metadata_json or {}
+        if "knowledge" in poi_metadata:
+            del poi_metadata["knowledge"]
+            poi.metadata_json = poi_metadata
+            flag_modified(poi, "metadata_json")
+
+    # Remove segment knowledge
+    for seg_name, seg_data in segments.items():
+        for wp in [seg_data.get("start_wp"), seg_data.get("end_wp")]:
+            if wp:
+                wp_metadata = wp.metadata_json or {}
+                if "knowledge" in wp_metadata:
+                    del wp_metadata["knowledge"]
+                    wp.metadata_json = wp_metadata
+                    flag_modified(wp, "metadata_json")
+
+    db.commit()
 
     return {"success": True, "deleted": True}
