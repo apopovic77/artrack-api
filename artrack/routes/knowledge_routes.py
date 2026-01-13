@@ -35,8 +35,40 @@ from ..auth import get_current_user, User
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# In-memory job storage (for background generation)
-_generation_jobs: Dict[str, Dict] = {}
+# File-based job storage (shared between workers)
+import os
+import tempfile
+
+JOBS_FILE = "/tmp/artrack_generation_jobs.json"
+
+def _load_jobs() -> Dict[str, Dict]:
+    """Load jobs from file."""
+    try:
+        if os.path.exists(JOBS_FILE):
+            with open(JOBS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load jobs: {e}")
+    return {}
+
+def _save_jobs(jobs: Dict[str, Dict]):
+    """Save jobs to file."""
+    try:
+        with open(JOBS_FILE, 'w') as f:
+            json.dump(jobs, f)
+    except Exception as e:
+        logger.warning(f"Failed to save jobs: {e}")
+
+def _get_job(job_id: str) -> Optional[Dict]:
+    """Get a specific job."""
+    jobs = _load_jobs()
+    return jobs.get(job_id)
+
+def _set_job(job_id: str, job_data: Dict):
+    """Set a job."""
+    jobs = _load_jobs()
+    jobs[job_id] = job_data
+    _save_jobs(jobs)
 
 # AI API endpoint
 INTERNAL_API_KEY = "Inetpass1"
@@ -398,7 +430,10 @@ def get_track_knowledge(
 
 async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_id: int):
     """Background task that runs the actual generation."""
-    job = _generation_jobs[job_id]
+    job = _get_job(job_id)
+    if not job:
+        logger.error(f"Job {job_id} not found at start of background task")
+        return
 
     try:
         db = SessionLocal()
@@ -475,6 +510,7 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
 
         job["total"] = len(task_list)
         job["status"] = "running"
+        _set_job(job_id, job)
 
         # Process sequentially
         error_count = 0
@@ -528,8 +564,11 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
                     "text": text, "text_original": text, "edited": False
                 }
 
-            job["completed"] = i + 1
-            job["current_item"] = f"{item_type}: {extra1 if item_type != 'segment' else item_id}"
+            # Update progress every 5 items (reduce file I/O)
+            if (i + 1) % 5 == 0 or i == len(task_list) - 1:
+                job["completed"] = i + 1
+                job["current_item"] = f"{item_type}: {extra1 if item_type != 'segment' else item_id}"
+                _set_job(job_id, job)
 
         job["status"] = "completed"
         job["knowledge"] = knowledge
@@ -541,11 +580,13 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
             "successful_texts": len(task_list) - error_count,
             "failed_texts": error_count
         }
+        _set_job(job_id, job)
 
     except Exception as e:
         logger.error(f"Generation job {job_id} failed: {e}")
         job["status"] = "failed"
         job["error"] = str(e)
+        _set_job(job_id, job)
 
 
 @router.post("/{track_id}/knowledge/generate")
@@ -570,7 +611,7 @@ async def start_generate_track_knowledge(
 
     # Create job
     job_id = str(uuid.uuid4())
-    _generation_jobs[job_id] = {
+    job_data = {
         "status": "starting",
         "track_id": track_id,
         "completed": 0,
@@ -580,6 +621,7 @@ async def start_generate_track_knowledge(
         "stats": None,
         "error": None
     }
+    _set_job(job_id, job_data)
 
     # Start background task
     background_tasks.add_task(
@@ -608,10 +650,9 @@ async def get_generation_status(
 
     Returns progress, and when complete, the generated knowledge.
     """
-    if job_id not in _generation_jobs:
+    job = _get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    job = _generation_jobs[job_id]
 
     if job["track_id"] != track_id:
         raise HTTPException(status_code=403, detail="Job does not belong to this track")
