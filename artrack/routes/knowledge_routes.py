@@ -512,14 +512,34 @@ async def generate_track_knowledge(
             ))
             task_metadata.append(("poi", str(poi.id), "at_poi", poi_name, poi.id))
 
-    # Run all tasks in parallel
-    logger.info(f"Generating {len(tasks)} texts in parallel...")
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Run tasks in batches to avoid rate limiting
+    BATCH_SIZE = 10
+    results = []
 
-    # Process results
+    logger.info(f"Generating {len(tasks)} texts in {(len(tasks) + BATCH_SIZE - 1) // BATCH_SIZE} batches...")
+
+    for i in range(0, len(tasks), BATCH_SIZE):
+        batch = tasks[i:i + BATCH_SIZE]
+        batch_num = i // BATCH_SIZE + 1
+        logger.info(f"Batch {batch_num}: generating {len(batch)} texts...")
+
+        batch_results = await asyncio.gather(*batch, return_exceptions=True)
+        results.extend(batch_results)
+
+        # Small delay between batches to avoid rate limiting
+        if i + BATCH_SIZE < len(tasks):
+            await asyncio.sleep(1)
+
+    # Process results and count errors
+    error_count = 0
     for i, result in enumerate(results):
         meta = task_metadata[i]
-        text = result if isinstance(result, str) else ""
+        if isinstance(result, Exception):
+            error_count += 1
+            logger.warning(f"AI generation failed for {meta[0]} {meta[1]} {meta[2]}: {result}")
+            text = ""
+        else:
+            text = result if isinstance(result, str) else ""
 
         if meta[0] == "route":
             _, route_id, text_type, route_name, rid = meta
@@ -567,7 +587,8 @@ async def generate_track_knowledge(
                 "edited": False
             }
 
-    logger.info(f"Generation complete: {len(tasks)} texts generated")
+    success_count = len(tasks) - error_count
+    logger.info(f"Generation complete: {success_count}/{len(tasks)} texts generated ({error_count} errors)")
 
     return {
         "success": True,
@@ -576,7 +597,9 @@ async def generate_track_knowledge(
             "routes_count": len(knowledge["routes"]),
             "segments_count": len(knowledge["segments"]),
             "pois_count": len(knowledge["pois"]),
-            "total_texts": len(tasks)
+            "total_texts": len(tasks),
+            "successful_texts": success_count,
+            "failed_texts": error_count
         }
     }
 
