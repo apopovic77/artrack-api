@@ -137,14 +137,18 @@ def _load_track_data(db: Session, track_id: int) -> Dict:
     ).all()
 
     # Separate segment markers and POIs
+    # Screen points (photo/video uploads) are NOT considered POIs for knowledge generation
+    # Only "manual" waypoints are proper POIs with meaningful content
     segment_waypoints = []
     pois = []
 
     for wp in all_waypoints:
         if wp.metadata_json and wp.metadata_json.get("segment"):
             segment_waypoints.append(wp)
-        else:
+        elif wp.waypoint_type == "manual":
+            # Only manual waypoints are proper POIs for audio guide content
             pois.append(wp)
+        # Skip photo/video/audio waypoints - these are screen points (client uploads)
 
     # Group segments by name
     segments = {}
