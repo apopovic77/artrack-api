@@ -601,6 +601,47 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
             "pois": {}
         }
 
+        # If only_missing, pre-populate with existing knowledge
+        if only_missing:
+            # Pre-populate routes
+            for route in data["routes"]:
+                route_metadata = route.metadata_json or {}
+                route_knowledge = route_metadata.get("knowledge", {})
+                knowledge["routes"][str(route.id)] = {
+                    "id": route.id,
+                    "name": route.name,
+                    "description": route.description or "",
+                    "intro": route_knowledge.get("intro", {"text": "", "text_original": "", "edited": False}),
+                    "outro": route_knowledge.get("outro", {"text": "", "text_original": "", "edited": False})
+                }
+
+            # Pre-populate segments
+            for seg_name, seg_data in data["segments"].items():
+                start_wp = seg_data.get("start_wp")
+                end_wp = seg_data.get("end_wp")
+                start_knowledge = _get_waypoint_knowledge(start_wp) or {}
+                end_knowledge = _get_waypoint_knowledge(end_wp) or {}
+                knowledge["segments"][seg_name] = {
+                    "name": seg_name,
+                    "description": seg_data.get("description", ""),
+                    "start_waypoint_id": start_wp.id if start_wp else None,
+                    "end_waypoint_id": end_wp.id if end_wp else None,
+                    "entry": start_knowledge.get("entry", {"text": "", "text_original": "", "edited": False}),
+                    "exit": end_knowledge.get("exit", {"text": "", "text_original": "", "edited": False})
+                }
+
+            # Pre-populate POIs
+            for poi in data["pois"]:
+                poi_knowledge = _get_waypoint_knowledge(poi) or {}
+                poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
+                knowledge["pois"][str(poi.id)] = {
+                    "waypoint_id": poi.id,
+                    "name": poi_name,
+                    "description": poi.user_description or "",
+                    "approaching": poi_knowledge.get("approaching", {"text": "", "text_original": "", "edited": False}),
+                    "at_poi": poi_knowledge.get("at_poi", {"text": "", "text_original": "", "edited": False})
+                }
+
         # Build task list
         task_list = []
 
