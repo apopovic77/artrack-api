@@ -101,6 +101,7 @@ class GenerateRequest(BaseModel):
     generate_routes: bool = True
     generate_segments: bool = True
     generate_pois: bool = True
+    only_missing: bool = False  # Only generate texts that are empty
 
 
 class AudioGenerateRequest(BaseModel):
@@ -558,6 +559,39 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
             background_knowledge=body_dict.get("background_knowledge", "")
         )
 
+        only_missing = body_dict.get("only_missing", False)
+
+        # Load existing knowledge if only_missing mode
+        existing_knowledge = {"routes": {}, "segments": {}, "pois": {}}
+        if only_missing:
+            # Load existing route knowledge
+            for route in data["routes"]:
+                route_metadata = route.metadata_json or {}
+                route_knowledge = route_metadata.get("knowledge", {})
+                existing_knowledge["routes"][str(route.id)] = {
+                    "intro": route_knowledge.get("intro", {}).get("text", ""),
+                    "outro": route_knowledge.get("outro", {}).get("text", "")
+                }
+
+            # Load existing segment knowledge
+            for seg_name, seg_data in data["segments"].items():
+                start_wp = seg_data.get("start_wp")
+                end_wp = seg_data.get("end_wp")
+                start_knowledge = _get_waypoint_knowledge(start_wp) or {}
+                end_knowledge = _get_waypoint_knowledge(end_wp) or {}
+                existing_knowledge["segments"][seg_name] = {
+                    "entry": start_knowledge.get("entry", {}).get("text", ""),
+                    "exit": end_knowledge.get("exit", {}).get("text", "")
+                }
+
+            # Load existing POI knowledge
+            for poi in data["pois"]:
+                poi_knowledge = _get_waypoint_knowledge(poi) or {}
+                existing_knowledge["pois"][str(poi.id)] = {
+                    "approaching": poi_knowledge.get("approaching", {}).get("text", ""),
+                    "at_poi": poi_knowledge.get("at_poi", {}).get("text", "")
+                }
+
         knowledge = {
             "version": 3,
             "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -579,42 +613,54 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
                 ).count()
                 route_length_km = (gps_count * 10) / 1000
 
-                task_list.append(("route", str(route.id), "intro", {
-                    "route_name": route.name,
-                    "route_description": route.description or "",
-                    "route_length_km": route_length_km
-                }, route.name, route.id))
+                # Check if intro already exists
+                if not only_missing or not existing_knowledge["routes"].get(str(route.id), {}).get("intro"):
+                    task_list.append(("route", str(route.id), "intro", {
+                        "route_name": route.name,
+                        "route_description": route.description or "",
+                        "route_length_km": route_length_km
+                    }, route.name, route.id))
 
-                task_list.append(("route", str(route.id), "outro", {
-                    "route_name": route.name,
-                    "route_length_km": route_length_km
-                }, route.name, route.id))
+                # Check if outro already exists
+                if not only_missing or not existing_knowledge["routes"].get(str(route.id), {}).get("outro"):
+                    task_list.append(("route", str(route.id), "outro", {
+                        "route_name": route.name,
+                        "route_length_km": route_length_km
+                    }, route.name, route.id))
 
         if body_dict.get("generate_segments", True):
             for seg_name, seg_data in data["segments"].items():
-                task_list.append(("segment", seg_name, "entry", {
-                    "segment_name": seg_name,
-                    "segment_description": seg_data.get("description", "")
-                }, seg_data, None))
+                # Check if entry already exists
+                if not only_missing or not existing_knowledge["segments"].get(seg_name, {}).get("entry"):
+                    task_list.append(("segment", seg_name, "entry", {
+                        "segment_name": seg_name,
+                        "segment_description": seg_data.get("description", "")
+                    }, seg_data, None))
 
-                task_list.append(("segment", seg_name, "exit", {
-                    "segment_name": seg_name
-                }, seg_data, None))
+                # Check if exit already exists
+                if not only_missing or not existing_knowledge["segments"].get(seg_name, {}).get("exit"):
+                    task_list.append(("segment", seg_name, "exit", {
+                        "segment_name": seg_name
+                    }, seg_data, None))
 
         if body_dict.get("generate_pois", True):
             for poi in data["pois"]:
                 poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
                 poi_description = poi.user_description or ""
 
-                task_list.append(("poi", str(poi.id), "approaching", {
-                    "poi_name": poi_name,
-                    "poi_description": poi_description
-                }, poi_name, poi.id))
+                # Check if approaching already exists
+                if not only_missing or not existing_knowledge["pois"].get(str(poi.id), {}).get("approaching"):
+                    task_list.append(("poi", str(poi.id), "approaching", {
+                        "poi_name": poi_name,
+                        "poi_description": poi_description
+                    }, poi_name, poi.id))
 
-                task_list.append(("poi", str(poi.id), "at_poi", {
-                    "poi_name": poi_name,
-                    "poi_description": poi_description
-                }, poi_name, poi.id))
+                # Check if at_poi already exists
+                if not only_missing or not existing_knowledge["pois"].get(str(poi.id), {}).get("at_poi"):
+                    task_list.append(("poi", str(poi.id), "at_poi", {
+                        "poi_name": poi_name,
+                        "poi_description": poi_description
+                    }, poi_name, poi.id))
 
         db.close()
 
