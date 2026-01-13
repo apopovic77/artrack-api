@@ -11,6 +11,7 @@ Storage:
 Endpoints:
 - GET  /tracks/{track_id}/routes/{route_id}/knowledge - Get all knowledge for a route
 - POST /tracks/{track_id}/routes/{route_id}/knowledge/generate - Generate all narratives
+- POST /tracks/{track_id}/routes/{route_id}/knowledge/audio - Generate TTS audio for single item
 - PUT  /tracks/{track_id}/routes/{route_id}/knowledge - Save all knowledge
 - DELETE /tracks/{track_id}/routes/{route_id}/knowledge - Delete all knowledge
 """
@@ -62,6 +63,16 @@ class GenerateRequest(BaseModel):
     background_knowledge: str = ""
     generate_segments: bool = True
     generate_pois: bool = True
+
+
+class AudioGenerateRequest(BaseModel):
+    """Request to generate TTS audio for a single knowledge item."""
+    item_type: str  # "route", "segment", "poi"
+    item_id: Optional[str] = None  # segment name or waypoint_id (required for segment/poi)
+    text_type: str  # "intro", "outro", "entry", "exit", "approaching", "at_poi"
+    voice: str = "nova"  # OpenAI TTS voice
+    add_music: bool = False
+    language: str = "de"
 
 
 # ============ Helper Functions ============
@@ -617,6 +628,239 @@ def save_route_knowledge(
         "saved_pois": len(pois_knowledge),
         "saved_segments": len(segments_knowledge)
     }
+
+
+@router.post("/{track_id}/routes/{route_id}/knowledge/audio")
+async def generate_knowledge_audio(
+    track_id: int,
+    route_id: int,
+    body: AudioGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate TTS audio for a single knowledge item.
+
+    Uses the Dialog API to generate speech from the text.
+    Stores the audio in Storage API and updates the knowledge with audio_storage_id.
+
+    item_type: "route", "segment", "poi"
+    text_type: "intro", "outro", "entry", "exit", "approaching", "at_poi"
+    """
+    import uuid
+    import asyncio
+
+    # Load track and route
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    if track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only track creator can generate audio")
+
+    route = db.query(TrackRoute).filter(
+        TrackRoute.id == route_id,
+        TrackRoute.track_id == track_id
+    ).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    # Validate item_type and text_type combinations
+    valid_combinations = {
+        "route": ["intro", "outro"],
+        "segment": ["entry", "exit"],
+        "poi": ["approaching", "at_poi"]
+    }
+
+    if body.item_type not in valid_combinations:
+        raise HTTPException(status_code=400, detail=f"Invalid item_type: {body.item_type}")
+
+    if body.text_type not in valid_combinations[body.item_type]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid text_type '{body.text_type}' for item_type '{body.item_type}'"
+        )
+
+    if body.item_type in ["segment", "poi"] and not body.item_id:
+        raise HTTPException(status_code=400, detail="item_id required for segment and poi")
+
+    # Get the text to convert to audio
+    text = None
+    waypoint = None
+    source_id = None
+
+    if body.item_type == "route":
+        # Get text from route knowledge
+        route_metadata = route.metadata_json or {}
+        route_knowledge = route_metadata.get("knowledge", {}).get("route", {})
+        text_data = route_knowledge.get(body.text_type, {})
+        text = text_data.get("text", "")
+        source_id = f"route_{route_id}_{body.text_type}"
+
+    elif body.item_type == "segment":
+        # Find segment waypoint
+        segments, _ = _load_route_data(db, track_id, route_id)
+        seg_data = segments.get(body.item_id)
+
+        if not seg_data:
+            raise HTTPException(status_code=404, detail=f"Segment '{body.item_id}' not found")
+
+        if body.text_type == "entry":
+            waypoint = seg_data.get("start_wp")
+        else:  # exit
+            waypoint = seg_data.get("end_wp")
+
+        if not waypoint:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Waypoint for segment {body.text_type} not found"
+            )
+
+        wp_knowledge = _get_waypoint_knowledge(waypoint) or {}
+        text_data = wp_knowledge.get(body.text_type, {})
+        text = text_data.get("text", "")
+        source_id = f"segment_{waypoint.id}_{body.text_type}"
+
+    elif body.item_type == "poi":
+        # Find POI waypoint
+        waypoint_id = int(body.item_id)
+        waypoint = db.query(Waypoint).filter(Waypoint.id == waypoint_id).first()
+
+        if not waypoint:
+            raise HTTPException(status_code=404, detail=f"POI waypoint {waypoint_id} not found")
+
+        wp_knowledge = _get_waypoint_knowledge(waypoint) or {}
+        text_data = wp_knowledge.get(body.text_type, {})
+        text = text_data.get("text", "")
+        source_id = f"poi_{waypoint_id}_{body.text_type}"
+
+    if not text:
+        raise HTTPException(status_code=400, detail="No text found to generate audio from")
+
+    # Generate audio via Dialog API
+    job_id = str(uuid.uuid4())
+    timestamp = datetime.utcnow().isoformat() + "Z"
+
+    dialog_payload = {
+        "id": job_id,
+        "type": "speech_request",
+        "timestamp": timestamp,
+        "content": {
+            "text": text,
+            "language": body.language,
+            "speed": 1.0,
+            "voice": body.voice
+        },
+        "config": {
+            "provider": "openai",
+            "output_format": "mp3",
+            "dialog_mode": True,
+            "add_music": body.add_music,
+            "add_sfx": False,
+            "analyze_only": False,
+            "voice_mapping": {
+                "Narrator": body.voice
+            }
+        },
+        "save_options": {
+            "is_public": True,
+            "link_id": f"knowledge;{track_id};{route_id};{source_id}",
+            "collection_id": f"artrack-knowledge:{track_id}:{route_id}"
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Start dialog job
+            response = await client.post(
+                f"{AI_API_BASE}/ai/dialog/start",
+                json=dialog_payload,
+                headers={
+                    "X-API-KEY": INTERNAL_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                timeout=30.0
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Dialog API start failed: {response.status_code} - {response.text}")
+                raise HTTPException(status_code=500, detail="Failed to start audio generation")
+
+            # Poll for completion
+            max_wait = 120  # 2 minutes max
+            elapsed = 0
+            poll_interval = 2
+
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                status_resp = await client.get(
+                    f"{AI_API_BASE}/ai/dialog/status",
+                    params={"id": job_id},
+                    headers={"X-API-KEY": INTERNAL_API_KEY},
+                    timeout=30.0
+                )
+
+                if status_resp.status_code != 200:
+                    continue
+
+                status_data = status_resp.json()
+                phase = status_data.get("phase", "")
+
+                if phase == "done":
+                    result = status_data.get("result", {})
+                    storage_id = result.get("id")
+                    audio_url = result.get("url") or result.get("file_url")
+                    duration = result.get("duration_seconds")
+
+                    # Update knowledge with audio_storage_id
+                    if storage_id:
+                        if body.item_type == "route":
+                            route_metadata = route.metadata_json or {}
+                            if "knowledge" not in route_metadata:
+                                route_metadata["knowledge"] = {}
+                            if "route" not in route_metadata["knowledge"]:
+                                route_metadata["knowledge"]["route"] = {}
+                            if body.text_type not in route_metadata["knowledge"]["route"]:
+                                route_metadata["knowledge"]["route"][body.text_type] = {}
+                            route_metadata["knowledge"]["route"][body.text_type]["audio_storage_id"] = storage_id
+                            route.metadata_json = route_metadata
+                            flag_modified(route, "metadata_json")
+                            db.commit()
+
+                        elif waypoint:
+                            wp_metadata = waypoint.metadata_json or {}
+                            if "knowledge" not in wp_metadata:
+                                wp_metadata["knowledge"] = {}
+                            if body.text_type not in wp_metadata["knowledge"]:
+                                wp_metadata["knowledge"][body.text_type] = {}
+                            wp_metadata["knowledge"][body.text_type]["audio_storage_id"] = storage_id
+                            waypoint.metadata_json = wp_metadata
+                            flag_modified(waypoint, "metadata_json")
+                            db.commit()
+
+                    return {
+                        "success": True,
+                        "audio_storage_id": storage_id,
+                        "audio_url": audio_url,
+                        "duration_seconds": duration,
+                        "item_type": body.item_type,
+                        "item_id": body.item_id,
+                        "text_type": body.text_type
+                    }
+
+                elif phase == "error":
+                    error_msg = status_data.get("error", "Unknown error")
+                    raise HTTPException(status_code=500, detail=f"Audio generation failed: {error_msg}")
+
+            # Timeout
+            raise HTTPException(status_code=504, detail="Audio generation timed out")
+
+    except httpx.RequestError as e:
+        logger.error(f"Dialog API request failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Audio generation request failed: {str(e)}")
 
 
 @router.delete("/{track_id}/routes/{route_id}/knowledge")
