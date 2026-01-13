@@ -512,23 +512,19 @@ async def generate_track_knowledge(
             ))
             task_metadata.append(("poi", str(poi.id), "at_poi", poi_name, poi.id))
 
-    # Run tasks in batches to avoid rate limiting
-    BATCH_SIZE = 10
+    # Run tasks sequentially for reliability
     results = []
+    logger.info(f"Generating {len(tasks)} texts sequentially...")
 
-    logger.info(f"Generating {len(tasks)} texts in {(len(tasks) + BATCH_SIZE - 1) // BATCH_SIZE} batches...")
-
-    for i in range(0, len(tasks), BATCH_SIZE):
-        batch = tasks[i:i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
-        logger.info(f"Batch {batch_num}: generating {len(batch)} texts...")
-
-        batch_results = await asyncio.gather(*batch, return_exceptions=True)
-        results.extend(batch_results)
-
-        # Small delay between batches to avoid rate limiting
-        if i + BATCH_SIZE < len(tasks):
-            await asyncio.sleep(1)
+    for i, task in enumerate(tasks):
+        try:
+            result = await task
+            results.append(result)
+            if (i + 1) % 10 == 0:
+                logger.info(f"Progress: {i + 1}/{len(tasks)} texts generated")
+        except Exception as e:
+            logger.warning(f"Task {i} failed: {e}")
+            results.append(e)
 
     # Process results and count errors
     error_count = 0
