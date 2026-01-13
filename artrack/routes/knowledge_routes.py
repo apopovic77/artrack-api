@@ -597,7 +597,7 @@ async def start_generate_track_knowledge(
     }
 
 
-@router.get("/{track_id}/knowledge/generate/status")
+@router.get("/{track_id}/knowledge/generate-status")
 async def get_generation_status(
     track_id: int,
     job_id: str,
