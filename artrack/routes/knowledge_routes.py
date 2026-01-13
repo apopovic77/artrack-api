@@ -644,6 +644,9 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
 
         # Build task list
         task_list = []
+        skipped_count = 0
+
+        logger.info(f"Generation job {job_id}: only_missing={only_missing}")
 
         if body_dict.get("generate_routes", True):
             for route in data["routes"]:
@@ -654,56 +657,92 @@ async def _run_generation_job(job_id: str, track_id: int, body_dict: dict, user_
                 ).count()
                 route_length_km = (gps_count * 10) / 1000
 
+                # Get text values (handle both string and dict formats)
+                existing_intro_raw = existing_knowledge["routes"].get(str(route.id), {}).get("intro", "")
+                existing_outro_raw = existing_knowledge["routes"].get(str(route.id), {}).get("outro", "")
+                existing_intro = existing_intro_raw.get("text", "") if isinstance(existing_intro_raw, dict) else existing_intro_raw
+                existing_outro = existing_outro_raw.get("text", "") if isinstance(existing_outro_raw, dict) else existing_outro_raw
+
                 # Check if intro already exists
-                if not only_missing or not existing_knowledge["routes"].get(str(route.id), {}).get("intro"):
+                if not only_missing or not existing_intro:
                     task_list.append(("route", str(route.id), "intro", {
                         "route_name": route.name,
                         "route_description": route.description or "",
                         "route_length_km": route_length_km
                     }, route.name, route.id))
+                else:
+                    skipped_count += 1
 
                 # Check if outro already exists
-                if not only_missing or not existing_knowledge["routes"].get(str(route.id), {}).get("outro"):
+                if not only_missing or not existing_outro:
                     task_list.append(("route", str(route.id), "outro", {
                         "route_name": route.name,
                         "route_length_km": route_length_km
                     }, route.name, route.id))
+                else:
+                    skipped_count += 1
 
         if body_dict.get("generate_segments", True):
             for seg_name, seg_data in data["segments"].items():
+                # Get text values (handle both string and dict formats)
+                existing_entry_raw = existing_knowledge["segments"].get(seg_name, {}).get("entry", "")
+                existing_exit_raw = existing_knowledge["segments"].get(seg_name, {}).get("exit", "")
+                existing_entry = existing_entry_raw.get("text", "") if isinstance(existing_entry_raw, dict) else existing_entry_raw
+                existing_exit = existing_exit_raw.get("text", "") if isinstance(existing_exit_raw, dict) else existing_exit_raw
+
                 # Check if entry already exists
-                if not only_missing or not existing_knowledge["segments"].get(seg_name, {}).get("entry"):
+                if not only_missing or not existing_entry:
                     task_list.append(("segment", seg_name, "entry", {
                         "segment_name": seg_name,
                         "segment_description": seg_data.get("description", "")
                     }, seg_data, None))
+                else:
+                    skipped_count += 1
 
                 # Check if exit already exists
-                if not only_missing or not existing_knowledge["segments"].get(seg_name, {}).get("exit"):
+                if not only_missing or not existing_exit:
                     task_list.append(("segment", seg_name, "exit", {
                         "segment_name": seg_name
                     }, seg_data, None))
+                else:
+                    skipped_count += 1
 
         if body_dict.get("generate_pois", True):
             for poi in data["pois"]:
                 poi_name = (poi.metadata_json or {}).get("title", f"POI #{poi.id}")
                 poi_description = poi.user_description or ""
 
+                # Get text values (handle both string and dict formats)
+                existing_approaching_raw = existing_knowledge["pois"].get(str(poi.id), {}).get("approaching", "")
+                existing_at_poi_raw = existing_knowledge["pois"].get(str(poi.id), {}).get("at_poi", "")
+
+                # Extract text if it's a dict
+                existing_approaching = existing_approaching_raw.get("text", "") if isinstance(existing_approaching_raw, dict) else existing_approaching_raw
+                existing_at_poi = existing_at_poi_raw.get("text", "") if isinstance(existing_at_poi_raw, dict) else existing_at_poi_raw
+
+                logger.info(f"POI {poi.id} ({poi_name}): approaching='{existing_approaching[:30] if existing_approaching else ''}', at_poi='{existing_at_poi[:30] if existing_at_poi else ''}'")
+
                 # Check if approaching already exists
-                if not only_missing or not existing_knowledge["pois"].get(str(poi.id), {}).get("approaching"):
+                if not only_missing or not existing_approaching:
                     task_list.append(("poi", str(poi.id), "approaching", {
                         "poi_name": poi_name,
                         "poi_description": poi_description
                     }, poi_name, poi.id))
+                else:
+                    skipped_count += 1
 
                 # Check if at_poi already exists
-                if not only_missing or not existing_knowledge["pois"].get(str(poi.id), {}).get("at_poi"):
+                if not only_missing or not existing_at_poi:
                     task_list.append(("poi", str(poi.id), "at_poi", {
                         "poi_name": poi_name,
                         "poi_description": poi_description
                     }, poi_name, poi.id))
+                else:
+                    skipped_count += 1
 
         db.close()
+
+        logger.info(f"Generation job {job_id}: {len(task_list)} tasks to generate, {skipped_count} skipped (only_missing={only_missing})")
 
         job["total"] = len(task_list)
         job["status"] = "running"
