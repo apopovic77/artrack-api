@@ -10,6 +10,7 @@ Storage:
 
 Endpoints (Track-Level):
 - GET  /tracks/{track_id}/knowledge - Get all knowledge for a track
+- GET  /tracks/{track_id}/knowledge/version - Get lightweight version info (for cache validation)
 - POST /tracks/{track_id}/knowledge/generate - Generate all narratives
 - POST /tracks/{track_id}/knowledge/audio - Generate TTS audio for single item
 - PUT  /tracks/{track_id}/knowledge - Save all knowledge
@@ -540,6 +541,240 @@ def get_track_knowledge(
         "knowledge": knowledge,
         "track_id": track_id,
         "track_name": track.name
+    }
+
+
+# ============ Knowledge Version Endpoint (for Cache Validation) ============
+
+def _compute_knowledge_hash(db: Session, track_id: int, data: Dict) -> str:
+    """
+    Compute SHA256 hash of all knowledge content for cache validation.
+
+    Includes all text content in deterministic order:
+    - Track config
+    - Route intro/outro texts
+    - Segment entry/exit texts
+    - POI approaching/at_poi texts
+    - All audio storage IDs
+    """
+    import hashlib
+
+    hash_parts = []
+
+    # 1. Track config
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if track:
+        config = (track.metadata_json or {}).get("knowledge_config", {})
+        if config:
+            hash_parts.append(f"CONFIG:{json.dumps(config, sort_keys=True)}")
+
+    # 2. Routes (sorted by ID)
+    for route in sorted(data["routes"], key=lambda r: r.id):
+        route_metadata = route.metadata_json or {}
+        route_knowledge = route_metadata.get("knowledge", {})
+
+        intro = route_knowledge.get("intro", {})
+        outro = route_knowledge.get("outro", {})
+
+        intro_text = intro.get("text", "")
+        outro_text = outro.get("text", "")
+        intro_cues = intro.get("cues", [])
+        outro_cues = outro.get("cues", [])
+
+        if intro_text:
+            hash_parts.append(f"R{route.id}_intro:{intro_text}")
+        if outro_text:
+            hash_parts.append(f"R{route.id}_outro:{outro_text}")
+
+        # Include audio storage IDs
+        for cue in intro_cues:
+            if cue.get("audio_storage_id"):
+                hash_parts.append(f"R{route.id}_intro_audio:{cue['audio_storage_id']}")
+        for cue in outro_cues:
+            if cue.get("audio_storage_id"):
+                hash_parts.append(f"R{route.id}_outro_audio:{cue['audio_storage_id']}")
+
+    # 3. Segments (sorted by name)
+    for seg_name in sorted(data["segments"].keys()):
+        seg_data = data["segments"][seg_name]
+        start_wp = seg_data.get("start_wp")
+        end_wp = seg_data.get("end_wp")
+
+        if start_wp:
+            start_knowledge = (start_wp.metadata_json or {}).get("knowledge", {})
+            entry = start_knowledge.get("entry", {})
+            entry_text = entry.get("text", "")
+            entry_cues = entry.get("cues", [])
+
+            if entry_text:
+                hash_parts.append(f"S{seg_name}_entry:{entry_text}")
+            for cue in entry_cues:
+                if cue.get("audio_storage_id"):
+                    hash_parts.append(f"S{seg_name}_entry_audio:{cue['audio_storage_id']}")
+
+        if end_wp:
+            end_knowledge = (end_wp.metadata_json or {}).get("knowledge", {})
+            exit_data = end_knowledge.get("exit", {})
+            exit_text = exit_data.get("text", "")
+            exit_cues = exit_data.get("cues", [])
+
+            if exit_text:
+                hash_parts.append(f"S{seg_name}_exit:{exit_text}")
+            for cue in exit_cues:
+                if cue.get("audio_storage_id"):
+                    hash_parts.append(f"S{seg_name}_exit_audio:{cue['audio_storage_id']}")
+
+    # 4. POIs (sorted by ID)
+    for poi in sorted(data["pois"], key=lambda p: p.id):
+        poi_knowledge = (poi.metadata_json or {}).get("knowledge", {})
+
+        approaching = poi_knowledge.get("approaching", {})
+        at_poi = poi_knowledge.get("at_poi", {})
+
+        approaching_text = approaching.get("text", "")
+        at_poi_text = at_poi.get("text", "")
+        approaching_cues = approaching.get("cues", [])
+        at_poi_cues = at_poi.get("cues", [])
+
+        if approaching_text:
+            hash_parts.append(f"P{poi.id}_approaching:{approaching_text}")
+        if at_poi_text:
+            hash_parts.append(f"P{poi.id}_at_poi:{at_poi_text}")
+
+        for cue in approaching_cues:
+            if cue.get("audio_storage_id"):
+                hash_parts.append(f"P{poi.id}_approaching_audio:{cue['audio_storage_id']}")
+        for cue in at_poi_cues:
+            if cue.get("audio_storage_id"):
+                hash_parts.append(f"P{poi.id}_at_poi_audio:{cue['audio_storage_id']}")
+
+    # Combine and hash
+    combined = "\n".join(hash_parts)
+    return hashlib.sha256(combined.encode()).hexdigest()
+
+
+def _count_audio_cues(data: Dict) -> tuple:
+    """
+    Count total audio cues and collect all storage IDs.
+
+    Returns: (audio_count, storage_ids_list)
+    """
+    audio_count = 0
+    storage_ids = []
+
+    # Routes
+    for route in data["routes"]:
+        route_metadata = route.metadata_json or {}
+        route_knowledge = route_metadata.get("knowledge", {})
+
+        for text_type in ["intro", "outro"]:
+            text_data = route_knowledge.get(text_type, {})
+            cues = text_data.get("cues", [])
+            for cue in cues:
+                if cue.get("audio_storage_id"):
+                    audio_count += 1
+                    storage_ids.append(cue["audio_storage_id"])
+
+    # Segments
+    for seg_name, seg_data in data["segments"].items():
+        for wp in [seg_data.get("start_wp"), seg_data.get("end_wp")]:
+            if wp:
+                wp_knowledge = (wp.metadata_json or {}).get("knowledge", {})
+                for text_type in ["entry", "exit"]:
+                    text_data = wp_knowledge.get(text_type, {})
+                    cues = text_data.get("cues", [])
+                    for cue in cues:
+                        if cue.get("audio_storage_id"):
+                            audio_count += 1
+                            storage_ids.append(cue["audio_storage_id"])
+
+    # POIs
+    for poi in data["pois"]:
+        poi_knowledge = (poi.metadata_json or {}).get("knowledge", {})
+        for text_type in ["approaching", "at_poi"]:
+            text_data = poi_knowledge.get(text_type, {})
+            cues = text_data.get("cues", [])
+            for cue in cues:
+                if cue.get("audio_storage_id"):
+                    audio_count += 1
+                    storage_ids.append(cue["audio_storage_id"])
+
+    return audio_count, storage_ids
+
+
+@router.get("/{track_id}/knowledge/version")
+def get_knowledge_version(
+    track_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get lightweight version info for track knowledge (for cache validation).
+
+    Returns content hash and counts without full knowledge data.
+    Use this to check if cached knowledge is still valid.
+
+    Response:
+    - content_hash: SHA256 hash of all knowledge content
+    - last_modified: Track's last update timestamp
+    - poi_count: Number of POIs with knowledge
+    - audio_count: Number of generated audio cues
+    - has_knowledge: Whether any knowledge exists
+    - storage_ids: List of all audio storage IDs (for cache diffing)
+    """
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    if track.visibility == "private" and track.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Load track data
+    data = _load_track_data(db, track_id)
+
+    # Compute hash
+    content_hash = _compute_knowledge_hash(db, track_id, data)
+
+    # Count audio
+    audio_count, storage_ids = _count_audio_cues(data)
+
+    # Check if knowledge exists (same logic as get_track_knowledge)
+    has_route_texts = False
+    has_segment_texts = False
+    has_poi_texts = False
+
+    for route in data["routes"]:
+        route_metadata = route.metadata_json or {}
+        route_knowledge = route_metadata.get("knowledge", {})
+        if route_knowledge.get("intro", {}).get("text") or route_knowledge.get("outro", {}).get("text"):
+            has_route_texts = True
+            break
+
+    for seg_name, seg_data in data["segments"].items():
+        start_wp = seg_data.get("start_wp")
+        end_wp = seg_data.get("end_wp")
+        start_knowledge = _get_waypoint_knowledge(start_wp) or {}
+        end_knowledge = _get_waypoint_knowledge(end_wp) or {}
+        if start_knowledge.get("entry", {}).get("text") or end_knowledge.get("exit", {}).get("text"):
+            has_segment_texts = True
+            break
+
+    for poi in data["pois"]:
+        poi_knowledge = _get_waypoint_knowledge(poi) or {}
+        if poi_knowledge.get("approaching", {}).get("text") or poi_knowledge.get("at_poi", {}).get("text"):
+            has_poi_texts = True
+            break
+
+    return {
+        "track_id": track_id,
+        "content_hash": content_hash,
+        "last_modified": track.updated_at.isoformat() + "Z" if track.updated_at else None,
+        "poi_count": len(data["pois"]),
+        "route_count": len(data["routes"]),
+        "segment_count": len(data["segments"]),
+        "audio_count": audio_count,
+        "storage_ids": storage_ids,
+        "has_knowledge": has_route_texts or has_segment_texts or has_poi_texts
     }
 
 
